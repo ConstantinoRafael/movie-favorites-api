@@ -1,2 +1,4 @@
 export { AppConfigModule } from './config.module';
-export { appConfig } from './app.config';
+export { AppConfigService } from './app-config.service';
+export { ENV_KEYS } from './env.keys';
+export { EnvironmentVariables } from './env.validation';
