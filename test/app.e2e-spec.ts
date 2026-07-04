@@ -4,6 +4,7 @@ import request from 'supertest';
 import { App } from 'supertest/types';
 import { AppModule } from '../src/app.module';
 import { PrismaService } from '../src/prisma';
+import { RedisService } from '../src/redis';
 
 describe('Health (e2e)', () => {
   let app: INestApplication<App>;
@@ -18,6 +19,14 @@ describe('Health (e2e)', () => {
         onModuleDestroy: jest.fn().mockResolvedValue(undefined),
         $connect: jest.fn().mockResolvedValue(undefined),
         $disconnect: jest.fn().mockResolvedValue(undefined),
+      })
+      .overrideProvider(RedisService)
+      .useValue({
+        onModuleInit: jest.fn().mockResolvedValue(undefined),
+        onModuleDestroy: jest.fn().mockResolvedValue(undefined),
+        get: jest.fn().mockResolvedValue(null),
+        set: jest.fn().mockResolvedValue(undefined),
+        delete: jest.fn().mockResolvedValue(undefined),
       })
       .compile();
 
