@@ -4,3 +4,4 @@
  */
 export { FavoritesModule } from './favorites';
 export { HealthModule } from './health';
+export { MoviesModule } from './movies';

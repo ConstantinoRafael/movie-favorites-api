@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common';
 import { AppConfigModule } from './config';
 import { HealthModule } from './modules/health';
 import { FavoritesModule } from './modules/favorites';
+import { MoviesModule } from './modules/movies';
 import { PrismaModule } from './prisma';
 import { RedisModule } from './redis';
 import { TmdbModule } from './tmdb';
@@ -13,6 +14,7 @@ import { TmdbModule } from './tmdb';
     RedisModule,
     TmdbModule,
     FavoritesModule,
+    MoviesModule,
     HealthModule,
   ],
 })
