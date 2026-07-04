@@ -6,3 +6,20 @@ datasource db {
   provider = "postgresql"
   url      = env("DATABASE_URL")
 }
+
+model FavoriteMovie {
+  id          Int      @id @default(autoincrement())
+  tmdbId      Int      @unique
+  title       String
+  overview    String   @db.Text
+  releaseYear Int
+  posterPath  String?
+  voteAverage Float    @db.Real
+  watched     Boolean  @default(false)
+  watchedAt   DateTime?
+  rating      Int?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@map("favorite_movies")
+}
