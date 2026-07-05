@@ -9,6 +9,7 @@ import {
   MovieNotFoundException,
   MovieNotWatchedException,
 } from '../../common/exceptions';
+import { LogEvent } from '../../common/logging';
 import { FavoriteRepository } from '../favorites/favorite.repository';
 import {
   buildFavoriteTmdbCacheKey,
@@ -457,8 +458,8 @@ describe('MovieService', () => {
         watched: false,
       });
       expect(logger.info).toHaveBeenCalledWith(
-        expect.objectContaining({ tmdbId: 550 }),
-        'Cache hit for favorite TMDB data',
+        expect.objectContaining({ event: LogEvent.CACHE_HIT, tmdbId: 550 }),
+        'cache hit',
       );
     });
 
@@ -476,8 +477,8 @@ describe('MovieService', () => {
       );
       expect(result[0]?.voteAverage).toBe(8.8);
       expect(logger.info).toHaveBeenCalledWith(
-        expect.objectContaining({ tmdbId: 550 }),
-        'Cache miss for favorite TMDB data',
+        expect.objectContaining({ event: LogEvent.CACHE_MISS, tmdbId: 550 }),
+        'cache miss',
       );
     });
 
@@ -504,8 +505,12 @@ describe('MovieService', () => {
         voteAverage: 8.0,
       });
       expect(logger.warn).toHaveBeenCalledWith(
-        expect.objectContaining({ tmdbId: 550 }),
-        'TMDB unavailable, using local fallback for favorite',
+        expect.objectContaining({
+          event: LogEvent.FALLBACK,
+          tmdbId: 550,
+          reason: 'tmdb_unavailable',
+        }),
+        'fallback',
       );
     });
 
@@ -522,8 +527,12 @@ describe('MovieService', () => {
         voteAverage: 8.0,
       });
       expect(logger.warn).toHaveBeenCalledWith(
-        expect.objectContaining({ tmdbId: 550, status: 'circuit_open' }),
-        'TMDB circuit open, using local fallback for favorite',
+        expect.objectContaining({
+          event: LogEvent.FALLBACK,
+          tmdbId: 550,
+          reason: 'circuit_open',
+        }),
+        'fallback',
       );
     });
 

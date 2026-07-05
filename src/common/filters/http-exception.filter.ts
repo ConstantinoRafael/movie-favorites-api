@@ -4,19 +4,25 @@ import {
   ExceptionFilter,
   HttpException,
   HttpStatus,
-  Logger,
 } from '@nestjs/common';
+import { InjectPinoLogger, PinoLogger } from 'nestjs-pino';
 import { Request, Response } from 'express';
 import { ErrorResponseDto } from '../dto/error-response.dto';
+import { LogEvent } from '../logging/log-events';
+
+type RequestWithId = Request & { id?: string };
 
 @Catch()
 export class HttpExceptionFilter implements ExceptionFilter {
-  private readonly logger = new Logger(HttpExceptionFilter.name);
+  constructor(
+    @InjectPinoLogger(HttpExceptionFilter.name)
+    private readonly logger: PinoLogger,
+  ) {}
 
   catch(exception: unknown, host: ArgumentsHost): void {
     const ctx = host.switchToHttp();
     const response = ctx.getResponse<Response>();
-    const request = ctx.getRequest<Request>();
+    const request = ctx.getRequest<RequestWithId>();
 
     const status = this.resolveStatus(exception);
     const message = this.extractMessage(exception);
@@ -69,22 +75,30 @@ export class HttpExceptionFilter implements ExceptionFilter {
   }
 
   private logException(
-    request: Request,
+    request: RequestWithId,
     status: number,
     message: string | string[],
     exception: unknown,
   ): void {
-    const logMessage = `${request.method} ${request.url} - ${JSON.stringify(message)}`;
+    const payload = {
+      event: LogEvent.ERROR,
+      requestId: request.id,
+      method: request.method,
+      path: request.url,
+      statusCode: status,
+      message,
+      err:
+        exception instanceof Error
+          ? exception.stack ?? exception.message
+          : String(exception),
+    };
 
     if (status >= 500) {
-      this.logger.error(
-        logMessage,
-        exception instanceof Error ? exception.stack : String(exception),
-      );
+      this.logger.error(payload, 'error');
 
       return;
     }
 
-    this.logger.warn(logMessage);
+    this.logger.warn(payload, 'error');
   }
 }

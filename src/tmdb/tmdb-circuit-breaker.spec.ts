@@ -6,6 +6,7 @@ import {
   TMDB_CIRCUIT_TIMEOUT_MS,
   TMDB_CIRCUIT_VOLUME_THRESHOLD,
 } from './tmdb-circuit-breaker.constants';
+import { LogEvent } from '../common/logging';
 import { TmdbCircuitOpenException } from './tmdb-circuit-open.exception';
 
 describe('TmdbCircuitBreaker', () => {
@@ -75,13 +76,19 @@ describe('TmdbCircuitBreaker', () => {
     internalBreaker.emit('close');
 
     expect(logger.warn).toHaveBeenCalledWith(
-      expect.objectContaining({ resetTimeoutMs: TMDB_CIRCUIT_RESET_TIMEOUT_MS }),
-      'TMDB circuit open',
+      expect.objectContaining({
+        event: LogEvent.FALLBACK,
+        reason: 'circuit_open',
+      }),
+      'fallback',
     );
-    expect(logger.info).toHaveBeenCalledWith({}, 'TMDB circuit half open');
     expect(logger.info).toHaveBeenCalledWith(
-      expect.objectContaining({ successes: expect.any(Number) }),
-      'TMDB circuit closed',
+      { event: 'circuit.half_open' },
+      'circuit half open',
+    );
+    expect(logger.info).toHaveBeenCalledWith(
+      expect.objectContaining({ event: 'circuit.closed' }),
+      'circuit closed',
     );
   });
 });

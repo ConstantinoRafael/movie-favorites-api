@@ -1,15 +1,34 @@
 import { ArgumentsHost, BadRequestException, HttpStatus } from '@nestjs/common';
+import { getLoggerToken } from 'nestjs-pino';
+import { Test, TestingModule } from '@nestjs/testing';
 import { MovieAlreadyFavoritedException } from '../exceptions';
+import { LogEvent } from '../logging/log-events';
 import { HttpExceptionFilter } from './http-exception.filter';
 
 describe('HttpExceptionFilter', () => {
   let filter: HttpExceptionFilter;
+  let logger: { warn: jest.Mock; error: jest.Mock };
   let jsonMock: jest.Mock;
   let statusMock: jest.Mock;
   let host: ArgumentsHost;
 
-  beforeEach(() => {
-    filter = new HttpExceptionFilter();
+  beforeEach(async () => {
+    logger = {
+      warn: jest.fn(),
+      error: jest.fn(),
+    };
+
+    const module: TestingModule = await Test.createTestingModule({
+      providers: [
+        HttpExceptionFilter,
+        {
+          provide: getLoggerToken(HttpExceptionFilter.name),
+          useValue: logger,
+        },
+      ],
+    }).compile();
+
+    filter = module.get(HttpExceptionFilter);
 
     jsonMock = jest.fn();
     statusMock = jest.fn().mockReturnValue({ json: jsonMock });
@@ -17,7 +36,11 @@ describe('HttpExceptionFilter', () => {
     host = {
       switchToHttp: () => ({
         getResponse: () => ({ status: statusMock }),
-        getRequest: () => ({ url: '/favorites/550', method: 'PATCH' }),
+        getRequest: () => ({
+          url: '/favorites/550',
+          method: 'PATCH',
+          id: 'req-123',
+        }),
       }),
     } as ArgumentsHost;
   });
@@ -35,14 +58,13 @@ describe('HttpExceptionFilter', () => {
       }),
     );
 
-    const response = jsonMock.mock.calls[0]?.[0] as Record<string, unknown>;
-
-    expect(Object.keys(response).sort()).toEqual([
-      'message',
-      'path',
-      'statusCode',
-      'timestamp',
-    ]);
+    expect(logger.warn).toHaveBeenCalledWith(
+      expect.objectContaining({
+        event: LogEvent.ERROR,
+        requestId: 'req-123',
+      }),
+      'error',
+    );
   });
 
   it('should format validation errors with standard error response', () => {
@@ -67,6 +89,11 @@ describe('HttpExceptionFilter', () => {
         statusCode: HttpStatus.INTERNAL_SERVER_ERROR,
         message: 'Internal server error',
       }),
+    );
+
+    expect(logger.error).toHaveBeenCalledWith(
+      expect.objectContaining({ event: LogEvent.ERROR }),
+      'error',
     );
   });
 });

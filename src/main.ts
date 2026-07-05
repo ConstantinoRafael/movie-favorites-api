@@ -2,7 +2,6 @@ import { ValidationPipe } from '@nestjs/common';
 import { NestFactory } from '@nestjs/core';
 import { Logger } from 'nestjs-pino';
 import { AppModule } from './app.module';
-import { HttpExceptionFilter } from './common/filters';
 import { validationExceptionFactory } from './common/pipes';
 import { setupSwagger } from './common/swagger';
 import { AppConfigService } from './config';
@@ -10,7 +9,8 @@ import { AppConfigService } from './config';
 async function bootstrap(): Promise<void> {
   const app = await NestFactory.create(AppModule, { bufferLogs: true });
 
-  app.useLogger(app.get(Logger));
+  const logger = app.get(Logger);
+  app.useLogger(logger);
 
   app.enableShutdownHooks();
 
@@ -24,12 +24,17 @@ async function bootstrap(): Promise<void> {
     }),
   );
 
-  app.useGlobalFilters(new HttpExceptionFilter());
-
   setupSwagger(app);
 
   const appConfig = app.get(AppConfigService);
-  await app.listen(appConfig.appPort);
+  const port = appConfig.appPort;
+
+  await app.listen(port);
+
+  logger.log(
+    { event: 'application.started', port },
+    `Application listening on port ${port}`,
+  );
 }
 
 void bootstrap();

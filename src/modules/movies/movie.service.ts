@@ -11,6 +11,7 @@ import {
   MovieNotFoundException,
   MovieNotWatchedException,
 } from '../../common/exceptions';
+import { LogEvent } from '../../common/logging';
 import { CreateFavoriteDto } from '../favorites/dto/create-favorite.dto';
 import { FavoriteMovieResponseDto } from '../favorites/dto/favorite-movie-response.dto';
 import { UpdateFavoriteRatingDto } from '../favorites/dto/update-favorite-rating.dto';
@@ -180,11 +181,17 @@ export class MovieService {
     const cachedResponse = await this.getCachedSearch(cacheKey);
 
     if (cachedResponse) {
-      this.logger.info({ cacheKey }, 'Cache hit for search');
+      this.logger.info(
+        { event: LogEvent.CACHE_HIT, cacheKey },
+        'cache hit',
+      );
       return this.enrichWithFavorites(cachedResponse);
     }
 
-    this.logger.info({ cacheKey }, 'Cache miss for search');
+    this.logger.info(
+      { event: LogEvent.CACHE_MISS, cacheKey },
+      'cache miss',
+    );
 
     const tmdbResponse = await this.fetchSearchFromTmdb(query.query, page);
     const simplifiedResponse = mapTmdbSearchToResponse(tmdbResponse);
@@ -202,16 +209,16 @@ export class MovieService {
 
     if (cachedSnapshot) {
       this.logger.info(
-        { tmdbId: favorite.tmdbId, cacheKey },
-        'Cache hit for favorite TMDB data',
+        { event: LogEvent.CACHE_HIT, tmdbId: favorite.tmdbId, cacheKey },
+        'cache hit',
       );
 
       return mergeFavoriteWithTmdbSnapshot(favorite, cachedSnapshot);
     }
 
     this.logger.info(
-      { tmdbId: favorite.tmdbId, cacheKey },
-      'Cache miss for favorite TMDB data',
+      { event: LogEvent.CACHE_MISS, tmdbId: favorite.tmdbId, cacheKey },
+      'cache miss',
     );
 
     const tmdbMovie = await this.fetchTmdbSnapshotForEnrichment(
@@ -225,8 +232,8 @@ export class MovieService {
     }
 
     this.logger.warn(
-      { tmdbId: favorite.tmdbId },
-      'TMDB unavailable, using local fallback for favorite',
+      { event: LogEvent.FALLBACK, tmdbId: favorite.tmdbId, reason: 'tmdb_unavailable' },
+      'fallback',
     );
 
     return mapFavoriteToResponse(favorite);
@@ -245,8 +252,13 @@ export class MovieService {
       return JSON.parse(cached) as TmdbMovieSnapshot;
     } catch (error) {
       this.logger.warn(
-        { cacheKey, err: error instanceof Error ? error.message : String(error) },
-        'Failed to read TMDB cache for favorite. Falling back to TMDB',
+        {
+          event: LogEvent.FALLBACK,
+          cacheKey,
+          reason: 'cache_read_failed',
+          err: error instanceof Error ? error.message : String(error),
+        },
+        'fallback',
       );
 
       return null;
@@ -270,8 +282,12 @@ export class MovieService {
       );
     } catch (error) {
       this.logger.warn(
-        { cacheKey, err: error instanceof Error ? error.message : String(error) },
-        'Failed to write TMDB cache for favorite',
+        {
+          event: LogEvent.ERROR,
+          cacheKey,
+          err: error instanceof Error ? error.message : String(error),
+        },
+        'error',
       );
     }
   }
@@ -290,13 +306,13 @@ export class MovieService {
 
       this.logger.warn(
         {
+          event: LogEvent.FALLBACK,
           tmdbId,
+          reason: isCircuitOpen ? 'circuit_open' : 'tmdb_error',
           status: isCircuitOpen ? 'circuit_open' : (status ?? 'unknown'),
           err: error instanceof Error ? error.message : String(error),
         },
-        isCircuitOpen
-          ? 'TMDB circuit open, using local fallback for favorite'
-          : 'Failed to fetch TMDB details for favorite enrichment',
+        'fallback',
       );
 
       return null;
@@ -316,8 +332,13 @@ export class MovieService {
       return JSON.parse(cached) as SearchMoviesResponseDto;
     } catch (error) {
       this.logger.warn(
-        { cacheKey, err: error instanceof Error ? error.message : String(error) },
-        'Failed to read cache. Falling back to TMDB',
+        {
+          event: LogEvent.FALLBACK,
+          cacheKey,
+          reason: 'cache_read_failed',
+          err: error instanceof Error ? error.message : String(error),
+        },
+        'fallback',
       );
 
       return null;
@@ -341,8 +362,12 @@ export class MovieService {
       );
     } catch (error) {
       this.logger.warn(
-        { cacheKey, err: error instanceof Error ? error.message : String(error) },
-        'Failed to write cache. Returning response without caching',
+        {
+          event: LogEvent.ERROR,
+          cacheKey,
+          err: error instanceof Error ? error.message : String(error),
+        },
+        'error',
       );
     }
   }
@@ -368,7 +393,10 @@ export class MovieService {
 
   private handleTmdbGetMovieError(error: unknown, tmdbId: number): never {
     if (error instanceof TmdbCircuitOpenException) {
-      this.logger.warn({ tmdbId }, 'TMDB circuit open while fetching movie details');
+      this.logger.warn(
+        { event: LogEvent.FALLBACK, tmdbId, reason: 'circuit_open' },
+        'fallback',
+      );
 
       throw new BadGatewayException('Failed to fetch movie from TMDB');
     }
@@ -377,8 +405,13 @@ export class MovieService {
       const status = error.response?.status;
 
       this.logger.error(
-        { tmdbId, status: status ?? 'unknown', err: error.message },
-        'TMDB API error while fetching movie details',
+        {
+          event: LogEvent.ERROR,
+          tmdbId,
+          status: status ?? 'unknown',
+          err: error.message,
+        },
+        'error',
       );
 
       if (status === 404) {
@@ -393,8 +426,12 @@ export class MovieService {
     }
 
     this.logger.error(
-      { tmdbId, err: error instanceof Error ? error.message : String(error) },
-      'Unexpected error while fetching movie from TMDB',
+      {
+        event: LogEvent.ERROR,
+        tmdbId,
+        err: error instanceof Error ? error.message : String(error),
+      },
+      'error',
     );
 
     throw new InternalServerErrorException('Failed to fetch movie');
@@ -402,7 +439,10 @@ export class MovieService {
 
   private handleTmdbError(error: unknown): never {
     if (error instanceof TmdbCircuitOpenException) {
-      this.logger.warn({}, 'TMDB circuit open while searching movies');
+      this.logger.warn(
+        { event: LogEvent.FALLBACK, reason: 'circuit_open' },
+        'fallback',
+      );
 
       throw new BadGatewayException('Failed to fetch movies from TMDB');
     }
@@ -411,8 +451,12 @@ export class MovieService {
       const status = error.response?.status;
 
       this.logger.error(
-        { status: status ?? 'unknown', err: error.message },
-        'TMDB API error while searching movies',
+        {
+          event: LogEvent.ERROR,
+          status: status ?? 'unknown',
+          err: error.message,
+        },
+        'error',
       );
 
       if (status === 401) {
@@ -423,8 +467,11 @@ export class MovieService {
     }
 
     this.logger.error(
-      { err: error instanceof Error ? error.message : String(error) },
-      'Unexpected error while fetching movies from TMDB',
+      {
+        event: LogEvent.ERROR,
+        err: error instanceof Error ? error.message : String(error),
+      },
+      'error',
     );
 
     throw new InternalServerErrorException('Failed to fetch movies');
@@ -451,8 +498,12 @@ export class MovieService {
       return new Set(favorites.map((favorite) => favorite.tmdbId));
     } catch (error) {
       this.logger.warn(
-        { err: error instanceof Error ? error.message : String(error) },
-        'Failed to load favorites for search enrichment. Returning without isFavorite',
+        {
+          event: LogEvent.FALLBACK,
+          reason: 'favorites_load_failed',
+          err: error instanceof Error ? error.message : String(error),
+        },
+        'fallback',
       );
 
       return new Set();

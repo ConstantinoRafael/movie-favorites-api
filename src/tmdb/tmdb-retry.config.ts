@@ -1,6 +1,7 @@
 import { AxiosError } from 'axios';
 import axiosRetry, { IAxiosRetryConfig } from 'axios-retry';
 import { PinoLogger } from 'nestjs-pino';
+import { LogEvent } from '../common/logging';
 import {
   isTmdbRetryableError,
   TMDB_RETRY_COUNT,
@@ -16,6 +17,7 @@ export const buildTmdbRetryConfig = (
 
     logger.warn(
       {
+        event: LogEvent.RETRY,
         attempt: retryCount,
         maxAttempts: TMDB_RETRY_ATTEMPTS,
         waitTimeMs,
@@ -23,7 +25,7 @@ export const buildTmdbRetryConfig = (
         code: error.code ?? null,
         err: error.message,
       },
-      'TMDB request failed, scheduling retry',
+      'retry',
     );
 
     return waitTimeMs;

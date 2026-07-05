@@ -4,4 +4,5 @@
  */
 export * from './dto';
 export * from './exceptions';
+export * from './logging';
 export * from './swagger';

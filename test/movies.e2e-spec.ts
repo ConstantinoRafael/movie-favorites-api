@@ -3,7 +3,6 @@ import { Test, TestingModule } from '@nestjs/testing';
 import request from 'supertest';
 import { App } from 'supertest/types';
 import { AppModule } from '../src/app.module';
-import { HttpExceptionFilter } from '../src/common/filters';
 import { validationExceptionFactory } from '../src/common/pipes';
 import { FavoriteRepository } from '../src/modules/favorites/favorite.repository';
 import { PrismaService } from '../src/prisma';
@@ -84,7 +83,6 @@ describe('Movies search (e2e)', () => {
         exceptionFactory: validationExceptionFactory,
       }),
     );
-    app.useGlobalFilters(new HttpExceptionFilter());
     await app.init();
   });
 

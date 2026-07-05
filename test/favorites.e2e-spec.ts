@@ -4,7 +4,6 @@ import request from 'supertest';
 import { App } from 'supertest/types';
 import { AxiosError, AxiosHeaders } from 'axios';
 import { AppModule } from '../src/app.module';
-import { HttpExceptionFilter } from '../src/common/filters';
 import { validationExceptionFactory } from '../src/common/pipes';
 import { FavoriteRepository } from '../src/modules/favorites/favorite.repository';
 import { PrismaService } from '../src/prisma';
@@ -109,7 +108,6 @@ describe('Favorites (e2e)', () => {
         exceptionFactory: validationExceptionFactory,
       }),
     );
-    app.useGlobalFilters(new HttpExceptionFilter());
     await app.init();
   });
 

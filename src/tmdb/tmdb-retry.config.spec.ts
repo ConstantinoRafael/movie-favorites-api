@@ -1,6 +1,7 @@
 import { AxiosError, AxiosHeaders } from 'axios';
 import { buildTmdbRetryConfig } from './tmdb-retry.config';
 import { TMDB_RETRY_ATTEMPTS, TMDB_RETRY_COUNT } from './tmdb-retry.constants';
+import { LogEvent } from '../common/logging';
 import { TmdbHttpRetrySetup } from './tmdb-http-retry.setup';
 import { HttpService } from '@nestjs/axios';
 import { Test, TestingModule } from '@nestjs/testing';
@@ -40,13 +41,14 @@ describe('buildTmdbRetryConfig', () => {
     expect(waitTimeMs).toBeGreaterThan(0);
     expect(logger.warn).toHaveBeenCalledWith(
       expect.objectContaining({
+        event: LogEvent.RETRY,
         attempt: 1,
         maxAttempts: TMDB_RETRY_ATTEMPTS,
         waitTimeMs,
         status: 504,
         err: 'Gateway Timeout',
       }),
-      'TMDB request failed, scheduling retry',
+      'retry',
     );
   });
 

@@ -1,6 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import CircuitBreaker from 'opossum';
 import { InjectPinoLogger, PinoLogger } from 'nestjs-pino';
+import { LogEvent } from '../common/logging';
 import {
   TMDB_CIRCUIT_ERROR_THRESHOLD_PERCENT,
   TMDB_CIRCUIT_RESET_TIMEOUT_MS,
@@ -32,26 +33,29 @@ export class TmdbCircuitBreaker {
     this.breaker.on('open', () => {
       this.logger.warn(
         {
+          event: LogEvent.FALLBACK,
+          reason: 'circuit_open',
           failures: this.breaker.stats.failures,
           fires: this.breaker.stats.fires,
           timeouts: this.breaker.stats.timeouts,
           resetTimeoutMs: TMDB_CIRCUIT_RESET_TIMEOUT_MS,
         },
-        'TMDB circuit open',
+        'fallback',
       );
     });
 
     this.breaker.on('halfOpen', () => {
-      this.logger.info({}, 'TMDB circuit half open');
+      this.logger.info({ event: 'circuit.half_open' }, 'circuit half open');
     });
 
     this.breaker.on('close', () => {
       this.logger.info(
         {
+          event: 'circuit.closed',
           successes: this.breaker.stats.successes,
           fires: this.breaker.stats.fires,
         },
-        'TMDB circuit closed',
+        'circuit closed',
       );
     });
 
