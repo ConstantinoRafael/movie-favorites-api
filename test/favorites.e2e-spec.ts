@@ -1,391 +1,340 @@
-import { INestApplication, ValidationPipe } from '@nestjs/common';
-import { Test, TestingModule } from '@nestjs/testing';
+import { INestApplication } from '@nestjs/common';
 import request from 'supertest';
 import { App } from 'supertest/types';
 import { AxiosError, AxiosHeaders } from 'axios';
-import { AppModule } from '../src/app.module';
-import { validationExceptionFactory } from '../src/common/pipes';
-import { FavoriteRepository } from '../src/modules/favorites/favorite.repository';
-import { PrismaService } from '../src/prisma';
-import { RedisService } from '../src/redis';
-import { TmdbService } from '../src/tmdb';
+import {
+  createIntegrationApp,
+  expectApiError,
+  IntegrationMocks,
+} from './helpers/integration-app';
+import {
+  createdFavorite,
+  tmdbMovieDetails,
+  watchedFavorite,
+} from './helpers/favorites.fixture';
 
-describe('Favorites (e2e)', () => {
+describe('Favorites API (integração)', () => {
   let app: INestApplication<App>;
-  let favoriteRepository: {
-    findAll: jest.Mock;
-    findByTmdbId: jest.Mock;
-    create: jest.Mock;
-    update: jest.Mock;
-  };
-  let redis: { get: jest.Mock; set: jest.Mock };
-  let tmdb: { getMovie: jest.Mock };
+  let mocks: IntegrationMocks;
 
-  const tmdbMovieDetails = {
-    id: 550,
-    title: 'Fight Club',
-    overview: 'A ticking-time-bomb insomniac...',
-    poster_path: '/poster.jpg',
-    release_date: '1999-10-15',
-    vote_average: 8.4,
-    runtime: 139,
-    genres: [{ id: 18, name: 'Drama' }],
-    status: 'Released',
-  };
+  const createAxiosError = (status: number, message: string): AxiosError => {
+    const error = new AxiosError(message);
+    error.response = {
+      status,
+      statusText: message,
+      headers: {},
+      config: { headers: new AxiosHeaders() },
+      data: {},
+    };
 
-  const createdFavorite = {
-    id: 1,
-    tmdbId: 550,
-    title: 'Fight Club',
-    overview: 'A ticking-time-bomb insomniac...',
-    releaseYear: 1999,
-    posterPath: '/poster.jpg',
-    voteAverage: 8.4,
-    watched: false,
-    watchedAt: null,
-    rating: null,
-    createdAt: new Date('2026-01-01T12:00:00.000Z'),
-    updatedAt: new Date('2026-01-01T12:00:00.000Z'),
+    return error;
   };
 
   beforeEach(async () => {
-    favoriteRepository = {
-      findAll: jest.fn().mockResolvedValue([]),
-      findByTmdbId: jest.fn().mockResolvedValue(null),
-      create: jest.fn().mockResolvedValue(createdFavorite),
-      update: jest.fn(),
-    };
+    const testApp = await createIntegrationApp();
+    app = testApp.app;
+    mocks = testApp.mocks;
 
-    redis = {
-      get: jest.fn().mockResolvedValue(null),
-      set: jest.fn().mockResolvedValue(undefined),
-    };
-
-    tmdb = {
-      getMovie: jest.fn().mockResolvedValue(tmdbMovieDetails),
-    };
-
-    const moduleFixture: TestingModule = await Test.createTestingModule({
-      imports: [AppModule],
-    })
-      .overrideProvider(PrismaService)
-      .useValue({
-        onModuleInit: jest.fn().mockResolvedValue(undefined),
-        onModuleDestroy: jest.fn().mockResolvedValue(undefined),
-        $connect: jest.fn().mockResolvedValue(undefined),
-        $disconnect: jest.fn().mockResolvedValue(undefined),
-      })
-      .overrideProvider(RedisService)
-      .useValue({
-        onModuleInit: jest.fn().mockResolvedValue(undefined),
-        onModuleDestroy: jest.fn().mockResolvedValue(undefined),
-        get: redis.get,
-        set: redis.set,
-        delete: jest.fn().mockResolvedValue(undefined),
-      })
-      .overrideProvider(TmdbService)
-      .useValue({
-        searchMovies: jest.fn(),
-        getMovie: tmdb.getMovie,
-      })
-      .overrideProvider(FavoriteRepository)
-      .useValue({
-        findAll: favoriteRepository.findAll,
-        findByTmdbId: favoriteRepository.findByTmdbId,
-        create: favoriteRepository.create,
-        update: favoriteRepository.update,
-        delete: jest.fn(),
-      })
-      .compile();
-
-    app = moduleFixture.createNestApplication({ bufferLogs: true });
-    app.useGlobalPipes(
-      new ValidationPipe({
-        whitelist: true,
-        forbidNonWhitelisted: true,
-        transform: true,
-        transformOptions: { enableImplicitConversion: true },
-        exceptionFactory: validationExceptionFactory,
-      }),
-    );
-    await app.init();
+    mocks.tmdb.getMovie.mockResolvedValue(tmdbMovieDetails);
+    mocks.favoriteRepository.create.mockResolvedValue(createdFavorite);
   });
 
   afterEach(async () => {
     await app.close();
   });
 
-  it('/favorites (GET) should return enriched favorites from TMDB', async () => {
-    favoriteRepository.findAll.mockResolvedValue([createdFavorite]);
+  describe('POST /favorites', () => {
+    it('deve retornar 201 com o favorito criado', async () => {
+      const response = await request(app.getHttpServer())
+        .post('/favorites')
+        .send({ tmdbId: 550 })
+        .expect(201);
 
-    const response = await request(app.getHttpServer()).get('/favorites').expect(200);
+      expect(response.body).toMatchObject({
+        id: 1,
+        tmdbId: 550,
+        title: 'Fight Club',
+        overview: 'A ticking-time-bomb insomniac...',
+        releaseYear: 1999,
+        posterPath: '/poster.jpg',
+        voteAverage: 8.4,
+        watched: false,
+        rating: null,
+      });
 
-    expect(response.body).toHaveLength(1);
-    expect(response.body[0]).toMatchObject({
-      id: 1,
-      tmdbId: 550,
-      title: 'Fight Club',
-      overview: 'A ticking-time-bomb insomniac...',
-      voteAverage: 8.4,
-      watched: false,
+      expect(mocks.favoriteRepository.findByTmdbId).toHaveBeenCalledWith(550);
+      expect(mocks.tmdb.getMovie).toHaveBeenCalledWith(550);
+      expect(mocks.favoriteRepository.create).toHaveBeenCalledWith({
+        tmdbId: 550,
+        title: 'Fight Club',
+        overview: 'A ticking-time-bomb insomniac...',
+        releaseYear: 1999,
+        posterPath: '/poster.jpg',
+        voteAverage: 8.4,
+      });
     });
 
-    expect(tmdb.getMovie).toHaveBeenCalledWith(550);
-    expect(redis.set).toHaveBeenCalled();
-  });
+    it('deve retornar 409 quando o filme já está favoritado', async () => {
+      mocks.favoriteRepository.findByTmdbId.mockResolvedValue(createdFavorite);
 
-  it('/favorites (GET) should use cache when available', async () => {
-    favoriteRepository.findAll.mockResolvedValue([createdFavorite]);
+      const response = await request(app.getHttpServer())
+        .post('/favorites')
+        .send({ tmdbId: 550 })
+        .expect(409);
 
-    const cachedSnapshot = {
-      title: 'Fight Club (cached)',
-      overview: 'Cached overview',
-      releaseYear: 1999,
-      posterPath: '/cached-poster.jpg',
-      voteAverage: 9.0,
-    };
-
-    redis.get.mockResolvedValue(JSON.stringify(cachedSnapshot));
-
-    const response = await request(app.getHttpServer()).get('/favorites').expect(200);
-
-    expect(response.body[0]).toMatchObject({
-      title: 'Fight Club (cached)',
-      voteAverage: 9.0,
+      expectApiError(response.body, {
+        statusCode: 409,
+        message: 'Movie is already in favorites',
+        path: '/favorites',
+      });
+      expect(mocks.tmdb.getMovie).not.toHaveBeenCalled();
+      expect(mocks.favoriteRepository.create).not.toHaveBeenCalled();
     });
-    expect(tmdb.getMovie).not.toHaveBeenCalled();
-  });
 
-  it('/favorites (GET) should fallback to local data when TMDB fails', async () => {
-    const localFavorite = {
-      ...createdFavorite,
-      title: 'Fight Club (local)',
-      voteAverage: 7.5,
-    };
+    it('deve retornar 404 quando o filme não existe no TMDB', async () => {
+      mocks.tmdb.getMovie.mockRejectedValue(createAxiosError(404, 'Not Found'));
 
-    favoriteRepository.findAll.mockResolvedValue([localFavorite]);
+      const response = await request(app.getHttpServer())
+        .post('/favorites')
+        .send({ tmdbId: 999 })
+        .expect(404);
 
-    const axiosError = new AxiosError('Bad Gateway');
-    axiosError.response = {
-      status: 502,
-      statusText: 'Bad Gateway',
-      headers: {},
-      config: { headers: new AxiosHeaders() },
-      data: {},
-    };
-
-    tmdb.getMovie.mockRejectedValue(axiosError);
-
-    const response = await request(app.getHttpServer()).get('/favorites').expect(200);
-
-    expect(response.body[0]).toMatchObject({
-      title: 'Fight Club (local)',
-      voteAverage: 7.5,
+      expectApiError(response.body, {
+        statusCode: 404,
+        message: 'Movie with TMDB id 999 not found',
+        path: '/favorites',
+      });
+      expect(mocks.favoriteRepository.create).not.toHaveBeenCalled();
     });
-  });
 
-  it('/favorites/:tmdbId/watch (PATCH) should mark favorite as watched', async () => {
-    const watchedFavorite = {
-      ...createdFavorite,
-      watched: true,
-      watchedAt: new Date('2026-01-15T20:30:00.000Z'),
-    };
+    it('deve retornar 502 quando o TMDB está indisponível', async () => {
+      mocks.tmdb.getMovie.mockRejectedValue(createAxiosError(502, 'Bad Gateway'));
 
-    favoriteRepository.findByTmdbId.mockResolvedValue(createdFavorite);
-    favoriteRepository.update.mockResolvedValue(watchedFavorite);
+      const response = await request(app.getHttpServer())
+        .post('/favorites')
+        .send({ tmdbId: 550 })
+        .expect(502);
 
-    const response = await request(app.getHttpServer())
-      .patch('/favorites/550/watch')
-      .expect(200);
-
-    expect(response.body).toMatchObject({
-      tmdbId: 550,
-      watched: true,
+      expectApiError(response.body, {
+        statusCode: 502,
+        message: 'Failed to fetch movie from TMDB',
+        path: '/favorites',
+      });
     });
-    expect(favoriteRepository.update).toHaveBeenCalledWith(550, {
-      watched: true,
-      watchedAt: expect.any(Date),
-    });
-  });
 
-  it('/favorites/:tmdbId/watch (PATCH) should return existing favorite when already watched', async () => {
-    const watchedFavorite = {
-      ...createdFavorite,
-      watched: true,
-      watchedAt: new Date('2026-01-15T20:30:00.000Z'),
-    };
+    it('deve retornar 400 quando o body é inválido', async () => {
+      const response = await request(app.getHttpServer())
+        .post('/favorites')
+        .send({ tmdbId: 0 })
+        .expect(400);
 
-    favoriteRepository.findByTmdbId.mockResolvedValue(watchedFavorite);
-
-    const response = await request(app.getHttpServer())
-      .patch('/favorites/550/watch')
-      .expect(200);
-
-    expect(response.body.watched).toBe(true);
-    expect(favoriteRepository.update).not.toHaveBeenCalled();
-  });
-
-  it('/favorites/:tmdbId/watch (PATCH) should return 404 when favorite not found', async () => {
-    favoriteRepository.findByTmdbId.mockResolvedValue(null);
-
-    const response = await request(app.getHttpServer())
-      .patch('/favorites/999/watch')
-      .expect(404);
-
-    const body = response.body as { statusCode: number; message: string };
-
-    expect(body.statusCode).toBe(404);
-    expect(body.message).toBe('Favorite with TMDB id 999 not found');
-  });
-
-  it('/favorites/:tmdbId/rating (PATCH) should update rating when watched', async () => {
-    const watchedFavorite = {
-      ...createdFavorite,
-      watched: true,
-      watchedAt: new Date('2026-01-15T20:30:00.000Z'),
-      rating: 8.5,
-    };
-
-    favoriteRepository.findByTmdbId.mockResolvedValue({
-      ...watchedFavorite,
-      rating: null,
-    });
-    favoriteRepository.update.mockResolvedValue(watchedFavorite);
-
-    const response = await request(app.getHttpServer())
-      .patch('/favorites/550/rating')
-      .send({ rating: 8.5 })
-      .expect(200);
-
-    expect(response.body).toMatchObject({
-      tmdbId: 550,
-      watched: true,
-      rating: 8.5,
-    });
-    expect(favoriteRepository.update).toHaveBeenCalledWith(550, {
-      rating: 8.5,
+      expectApiError(response.body, {
+        statusCode: 400,
+        path: '/favorites',
+      });
+      expect(mocks.tmdb.getMovie).not.toHaveBeenCalled();
     });
   });
 
-  it('/favorites/:tmdbId/rating (PATCH) should return 400 when not watched', async () => {
-    favoriteRepository.findByTmdbId.mockResolvedValue(createdFavorite);
+  describe('GET /favorites', () => {
+    it('deve retornar 200 com favoritos enriquecidos pelo TMDB', async () => {
+      mocks.favoriteRepository.findAll.mockResolvedValue([createdFavorite]);
 
-    const response = await request(app.getHttpServer())
-      .patch('/favorites/550/rating')
-      .send({ rating: 8.5 })
-      .expect(400);
+      const response = await request(app.getHttpServer())
+        .get('/favorites')
+        .expect(200);
 
-    const body = response.body as { statusCode: number; message: string };
-
-    expect(body.statusCode).toBe(400);
-    expect(body.message).toBe(
-      'Favorite must be marked as watched before rating',
-    );
-    expect(favoriteRepository.update).not.toHaveBeenCalled();
-  });
-
-  it('/favorites/:tmdbId/rating (PATCH) should return 404 when favorite not found', async () => {
-    favoriteRepository.findByTmdbId.mockResolvedValue(null);
-
-    const response = await request(app.getHttpServer())
-      .patch('/favorites/999/rating')
-      .send({ rating: 8.5 })
-      .expect(404);
-
-    const body = response.body as { statusCode: number; message: string };
-
-    expect(body.statusCode).toBe(404);
-    expect(body.message).toBe('Favorite with TMDB id 999 not found');
-  });
-
-  it('/favorites/:tmdbId/rating (PATCH) should return 400 for invalid rating', async () => {
-    const response = await request(app.getHttpServer())
-      .patch('/favorites/550/rating')
-      .send({ rating: 11 })
-      .expect(400);
-
-    const body = response.body as { statusCode: number; path: string };
-
-    expect(body.statusCode).toBe(400);
-    expect(body.path).toBe('/favorites/550/rating');
-  });
-
-  it('/favorites (POST) should create a favorite', async () => {
-    const response = await request(app.getHttpServer())
-      .post('/favorites')
-      .send({ tmdbId: 550 })
-      .expect(201);
-
-    expect(response.body).toMatchObject({
-      id: 1,
-      tmdbId: 550,
-      title: 'Fight Club',
-      overview: 'A ticking-time-bomb insomniac...',
-      releaseYear: 1999,
-      posterPath: '/poster.jpg',
-      voteAverage: 8.4,
-      watched: false,
+      expect(response.body).toHaveLength(1);
+      expect(response.body[0]).toMatchObject({
+        id: 1,
+        tmdbId: 550,
+        title: 'Fight Club',
+        overview: 'A ticking-time-bomb insomniac...',
+        voteAverage: 8.4,
+        watched: false,
+      });
+      expect(mocks.tmdb.getMovie).toHaveBeenCalledWith(550);
+      expect(mocks.redis.set).toHaveBeenCalled();
     });
 
-    expect(favoriteRepository.findByTmdbId).toHaveBeenCalledWith(550);
-    expect(tmdb.getMovie).toHaveBeenCalledWith(550);
-    expect(favoriteRepository.create).toHaveBeenCalledWith({
-      tmdbId: 550,
-      title: 'Fight Club',
-      overview: 'A ticking-time-bomb insomniac...',
-      releaseYear: 1999,
-      posterPath: '/poster.jpg',
-      voteAverage: 8.4,
+    it('deve retornar 200 usando dados do cache Redis', async () => {
+      mocks.favoriteRepository.findAll.mockResolvedValue([createdFavorite]);
+      mocks.redis.get.mockResolvedValue(
+        JSON.stringify({
+          title: 'Fight Club (cached)',
+          overview: 'Cached overview',
+          releaseYear: 1999,
+          posterPath: '/cached-poster.jpg',
+          voteAverage: 9.0,
+        }),
+      );
+
+      const response = await request(app.getHttpServer())
+        .get('/favorites')
+        .expect(200);
+
+      expect(response.body[0]).toMatchObject({
+        title: 'Fight Club (cached)',
+        voteAverage: 9.0,
+      });
+      expect(mocks.tmdb.getMovie).not.toHaveBeenCalled();
+    });
+
+    it('deve retornar 200 com dados locais quando o TMDB falha (fallback)', async () => {
+      const localFavorite = {
+        ...createdFavorite,
+        title: 'Fight Club (local)',
+        voteAverage: 7.5,
+      };
+
+      mocks.favoriteRepository.findAll.mockResolvedValue([localFavorite]);
+      mocks.tmdb.getMovie.mockRejectedValue(createAxiosError(502, 'Bad Gateway'));
+
+      const response = await request(app.getHttpServer())
+        .get('/favorites')
+        .expect(200);
+
+      expect(response.body[0]).toMatchObject({
+        title: 'Fight Club (local)',
+        voteAverage: 7.5,
+      });
+    });
+
+    it('deve retornar 200 com array vazio quando não há favoritos', async () => {
+      mocks.favoriteRepository.findAll.mockResolvedValue([]);
+
+      const response = await request(app.getHttpServer())
+        .get('/favorites')
+        .expect(200);
+
+      expect(response.body).toEqual([]);
+      expect(mocks.tmdb.getMovie).not.toHaveBeenCalled();
     });
   });
 
-  it('/favorites (POST) should return 409 when movie is already favorited', async () => {
-    favoriteRepository.findByTmdbId.mockResolvedValue(createdFavorite);
+  describe('PATCH /favorites/:tmdbId/watch', () => {
+    it('deve retornar 200 ao marcar favorito como assistido', async () => {
+      mocks.favoriteRepository.findByTmdbId.mockResolvedValue(createdFavorite);
+      mocks.favoriteRepository.update.mockResolvedValue(watchedFavorite);
 
-    const response = await request(app.getHttpServer())
-      .post('/favorites')
-      .send({ tmdbId: 550 })
-      .expect(409);
+      const response = await request(app.getHttpServer())
+        .patch('/favorites/550/watch')
+        .expect(200);
 
-    const body = response.body as { statusCode: number; message: string };
+      expect(response.body).toMatchObject({
+        tmdbId: 550,
+        watched: true,
+        rating: 8.5,
+      });
+      expect(mocks.favoriteRepository.update).toHaveBeenCalledWith(550, {
+        watched: true,
+        watchedAt: expect.any(Date),
+      });
+    });
 
-    expect(body.statusCode).toBe(409);
-    expect(body.message).toBe('Movie is already in favorites');
-    expect(tmdb.getMovie).not.toHaveBeenCalled();
+    it('deve retornar 200 sem atualizar quando já está assistido', async () => {
+      mocks.favoriteRepository.findByTmdbId.mockResolvedValue(watchedFavorite);
+
+      const response = await request(app.getHttpServer())
+        .patch('/favorites/550/watch')
+        .expect(200);
+
+      expect(response.body.watched).toBe(true);
+      expect(mocks.favoriteRepository.update).not.toHaveBeenCalled();
+    });
+
+    it('deve retornar 404 quando o favorito não existe', async () => {
+      mocks.favoriteRepository.findByTmdbId.mockResolvedValue(null);
+
+      const response = await request(app.getHttpServer())
+        .patch('/favorites/999/watch')
+        .expect(404);
+
+      expectApiError(response.body, {
+        statusCode: 404,
+        message: 'Favorite with TMDB id 999 not found',
+        path: '/favorites/999/watch',
+      });
+      expect(mocks.favoriteRepository.update).not.toHaveBeenCalled();
+    });
+
+    it('deve retornar 400 quando tmdbId é inválido', async () => {
+      const response = await request(app.getHttpServer())
+        .patch('/favorites/0/watch')
+        .expect(400);
+
+      expectApiError(response.body, {
+        statusCode: 400,
+        path: '/favorites/0/watch',
+      });
+    });
   });
 
-  it('/favorites (POST) should return 404 when TMDB movie is not found', async () => {
-    const axiosError = new AxiosError('Not Found');
-    axiosError.response = {
-      status: 404,
-      statusText: 'Not Found',
-      headers: {},
-      config: { headers: new AxiosHeaders() },
-      data: {},
-    };
+  describe('PATCH /favorites/:tmdbId/rating', () => {
+    it('deve retornar 200 ao avaliar favorito assistido', async () => {
+      mocks.favoriteRepository.findByTmdbId.mockResolvedValue({
+        ...watchedFavorite,
+        rating: null,
+      });
+      mocks.favoriteRepository.update.mockResolvedValue(watchedFavorite);
 
-    tmdb.getMovie.mockRejectedValue(axiosError);
+      const response = await request(app.getHttpServer())
+        .patch('/favorites/550/rating')
+        .send({ rating: 8.5 })
+        .expect(200);
 
-    const response = await request(app.getHttpServer())
-      .post('/favorites')
-      .send({ tmdbId: 999 })
-      .expect(404);
+      expect(response.body).toMatchObject({
+        tmdbId: 550,
+        watched: true,
+        rating: 8.5,
+      });
+      expect(mocks.favoriteRepository.update).toHaveBeenCalledWith(550, {
+        rating: 8.5,
+      });
+    });
 
-    const body = response.body as { statusCode: number; message: string };
+    it('deve retornar 400 quando o filme não foi assistido', async () => {
+      mocks.favoriteRepository.findByTmdbId.mockResolvedValue(createdFavorite);
 
-    expect(body.statusCode).toBe(404);
-    expect(body.message).toBe('Movie with TMDB id 999 not found');
-  });
+      const response = await request(app.getHttpServer())
+        .patch('/favorites/550/rating')
+        .send({ rating: 8.5 })
+        .expect(400);
 
-  it('/favorites (POST) should return 400 for invalid body', async () => {
-    const response = await request(app.getHttpServer())
-      .post('/favorites')
-      .send({ tmdbId: 0 })
-      .expect(400);
+      expectApiError(response.body, {
+        statusCode: 400,
+        message: 'Favorite must be marked as watched before rating',
+        path: '/favorites/550/rating',
+      });
+      expect(mocks.favoriteRepository.update).not.toHaveBeenCalled();
+    });
 
-    const body = response.body as { statusCode: number; path: string };
+    it('deve retornar 404 quando o favorito não existe', async () => {
+      mocks.favoriteRepository.findByTmdbId.mockResolvedValue(null);
 
-    expect(body.statusCode).toBe(400);
-    expect(body.path).toBe('/favorites');
+      const response = await request(app.getHttpServer())
+        .patch('/favorites/999/rating')
+        .send({ rating: 8.5 })
+        .expect(404);
+
+      expectApiError(response.body, {
+        statusCode: 404,
+        message: 'Favorite with TMDB id 999 not found',
+        path: '/favorites/999/rating',
+      });
+    });
+
+    it('deve retornar 400 quando a nota é inválida', async () => {
+      const response = await request(app.getHttpServer())
+        .patch('/favorites/550/rating')
+        .send({ rating: 11 })
+        .expect(400);
+
+      expectApiError(response.body, {
+        statusCode: 400,
+        path: '/favorites/550/rating',
+      });
+      expect(mocks.favoriteRepository.findByTmdbId).not.toHaveBeenCalled();
+    });
   });
 });
