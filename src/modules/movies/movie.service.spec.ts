@@ -1,5 +1,6 @@
 import {
   BadGatewayException,
+  BadRequestException,
   ConflictException,
   NotFoundException,
 } from '@nestjs/common';
@@ -326,6 +327,73 @@ describe('MovieService', () => {
         expect.objectContaining({ tmdbId: 999 }),
         'Favorite not found',
       );
+    });
+  });
+
+  describe('updateRating', () => {
+    const unwatchedFavorite = {
+      id: 1,
+      tmdbId: 550,
+      title: 'Fight Club',
+      overview: 'A ticking-time-bomb insomniac...',
+      releaseYear: 1999,
+      posterPath: '/poster.jpg',
+      voteAverage: 8.4,
+      watched: false,
+      watchedAt: null,
+      rating: null,
+      createdAt: new Date('2026-01-01T12:00:00.000Z'),
+      updatedAt: new Date('2026-01-01T12:00:00.000Z'),
+    };
+
+    const watchedFavorite = {
+      ...unwatchedFavorite,
+      watched: true,
+      watchedAt: new Date('2026-01-15T20:30:00.000Z'),
+      rating: 8.5,
+    };
+
+    it('should update rating when favorite is watched', async () => {
+      favoriteRepository.findByTmdbId.mockResolvedValue({
+        ...watchedFavorite,
+        rating: null,
+      });
+      favoriteRepository.update.mockResolvedValue(watchedFavorite);
+
+      const result = await service.updateRating(550, { rating: 8.5 });
+
+      expect(favoriteRepository.update).toHaveBeenCalledWith(550, {
+        rating: 8.5,
+      });
+      expect(result.rating).toBe(8.5);
+      expect(logger.info).toHaveBeenCalledWith(
+        expect.objectContaining({ tmdbId: 550, rating: 8.5 }),
+        'Favorite rating updated',
+      );
+    });
+
+    it('should throw BadRequestException when favorite is not watched', async () => {
+      favoriteRepository.findByTmdbId.mockResolvedValue(unwatchedFavorite);
+
+      await expect(
+        service.updateRating(550, { rating: 8.5 }),
+      ).rejects.toBeInstanceOf(BadRequestException);
+
+      expect(favoriteRepository.update).not.toHaveBeenCalled();
+      expect(logger.warn).toHaveBeenCalledWith(
+        expect.objectContaining({ tmdbId: 550 }),
+        'Cannot rate favorite that has not been watched',
+      );
+    });
+
+    it('should throw NotFoundException when favorite does not exist', async () => {
+      favoriteRepository.findByTmdbId.mockResolvedValue(null);
+
+      await expect(
+        service.updateRating(999, { rating: 8.5 }),
+      ).rejects.toBeInstanceOf(NotFoundException);
+
+      expect(favoriteRepository.update).not.toHaveBeenCalled();
     });
   });
 

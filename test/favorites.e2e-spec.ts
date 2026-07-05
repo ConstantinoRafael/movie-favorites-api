@@ -238,6 +238,78 @@ describe('Favorites (e2e)', () => {
     expect(body.message).toBe('Favorite with TMDB id 999 not found');
   });
 
+  it('/favorites/:tmdbId/rating (PATCH) should update rating when watched', async () => {
+    const watchedFavorite = {
+      ...createdFavorite,
+      watched: true,
+      watchedAt: new Date('2026-01-15T20:30:00.000Z'),
+      rating: 8.5,
+    };
+
+    favoriteRepository.findByTmdbId.mockResolvedValue({
+      ...watchedFavorite,
+      rating: null,
+    });
+    favoriteRepository.update.mockResolvedValue(watchedFavorite);
+
+    const response = await request(app.getHttpServer())
+      .patch('/favorites/550/rating')
+      .send({ rating: 8.5 })
+      .expect(200);
+
+    expect(response.body).toMatchObject({
+      tmdbId: 550,
+      watched: true,
+      rating: 8.5,
+    });
+    expect(favoriteRepository.update).toHaveBeenCalledWith(550, {
+      rating: 8.5,
+    });
+  });
+
+  it('/favorites/:tmdbId/rating (PATCH) should return 400 when not watched', async () => {
+    favoriteRepository.findByTmdbId.mockResolvedValue(createdFavorite);
+
+    const response = await request(app.getHttpServer())
+      .patch('/favorites/550/rating')
+      .send({ rating: 8.5 })
+      .expect(400);
+
+    const body = response.body as { statusCode: number; message: string };
+
+    expect(body.statusCode).toBe(400);
+    expect(body.message).toBe(
+      'Favorite must be marked as watched before rating',
+    );
+    expect(favoriteRepository.update).not.toHaveBeenCalled();
+  });
+
+  it('/favorites/:tmdbId/rating (PATCH) should return 404 when favorite not found', async () => {
+    favoriteRepository.findByTmdbId.mockResolvedValue(null);
+
+    const response = await request(app.getHttpServer())
+      .patch('/favorites/999/rating')
+      .send({ rating: 8.5 })
+      .expect(404);
+
+    const body = response.body as { statusCode: number; message: string };
+
+    expect(body.statusCode).toBe(404);
+    expect(body.message).toBe('Favorite with TMDB id 999 not found');
+  });
+
+  it('/favorites/:tmdbId/rating (PATCH) should return 400 for invalid rating', async () => {
+    const response = await request(app.getHttpServer())
+      .patch('/favorites/550/rating')
+      .send({ rating: 11 })
+      .expect(400);
+
+    const body = response.body as { statusCode: number; path: string };
+
+    expect(body.statusCode).toBe(400);
+    expect(body.path).toBe('/favorites/550/rating');
+  });
+
   it('/favorites (POST) should create a favorite', async () => {
     const response = await request(app.getHttpServer())
       .post('/favorites')

@@ -17,7 +17,7 @@ model FavoriteMovie {
   voteAverage Float    @db.Real
   watched     Boolean  @default(false)
   watchedAt   DateTime?
-  rating      Int?
+  rating      Float?   @db.Real
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 

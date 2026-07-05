@@ -49,8 +49,8 @@ export class FavoriteMovieResponseDto {
   watchedAt: Date | null;
 
   @ApiPropertyOptional({
-    example: 9,
-    description: 'Avaliação pessoal do usuário (1–10)',
+    example: 8.5,
+    description: 'Avaliação pessoal do usuário (0–10, aceita decimais)',
     nullable: true,
   })
   rating: number | null;

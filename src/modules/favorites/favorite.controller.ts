@@ -25,6 +25,7 @@ import { API_TAGS } from '@common/swagger';
 import { MovieService } from '../movies/movie.service';
 import { CreateFavoriteDto } from './dto/create-favorite.dto';
 import { FavoriteMovieResponseDto } from './dto/favorite-movie-response.dto';
+import { UpdateFavoriteRatingDto } from './dto/update-favorite-rating.dto';
 
 @ApiTags(API_TAGS.FAVORITES)
 @Controller('favorites')
@@ -109,5 +110,37 @@ export class FavoriteController {
     @Param() params: TmdbIdParamDto,
   ): Promise<FavoriteMovieResponseDto> {
     return this.movieService.markAsWatched(params.tmdbId);
+  }
+
+  @Patch(':tmdbId/rating')
+  @ApiOperation({ summary: 'Avaliar filme favorito assistido' })
+  @ApiParam({
+    name: 'tmdbId',
+    type: Number,
+    example: 550,
+    description: 'ID do filme no TMDB',
+  })
+  @ApiOkResponse({
+    description: 'Avaliação do filme atualizada com sucesso',
+    type: FavoriteMovieResponseDto,
+  })
+  @ApiBadRequestResponse({
+    description:
+      'Dados inválidos ou filme ainda não foi marcado como assistido',
+    type: ErrorResponseDto,
+  })
+  @ApiNotFoundResponse({
+    description: 'Filme favorito não encontrado',
+    type: ErrorResponseDto,
+  })
+  @ApiInternalServerErrorResponse({
+    description: 'Erro interno ao processar a requisição',
+    type: ErrorResponseDto,
+  })
+  updateRating(
+    @Param() params: TmdbIdParamDto,
+    @Body() dto: UpdateFavoriteRatingDto,
+  ): Promise<FavoriteMovieResponseDto> {
+    return this.movieService.updateRating(params.tmdbId, dto);
   }
 }

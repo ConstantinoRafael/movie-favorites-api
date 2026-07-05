@@ -9,6 +9,7 @@ describe('FavoriteController', () => {
     addFavorite: jest.Mock;
     listFavorites: jest.Mock;
     markAsWatched: jest.Mock;
+    updateRating: jest.Mock;
   };
 
   const mockFavoriteResponse: FavoriteMovieResponseDto = {
@@ -34,6 +35,11 @@ describe('FavoriteController', () => {
         ...mockFavoriteResponse,
         watched: true,
         watchedAt: new Date('2026-01-15T20:30:00.000Z'),
+      }),
+      updateRating: jest.fn().mockResolvedValue({
+        ...mockFavoriteResponse,
+        watched: true,
+        rating: 8.5,
       }),
     };
 
@@ -72,5 +78,15 @@ describe('FavoriteController', () => {
 
     expect(result.watched).toBe(true);
     expect(movieService.markAsWatched).toHaveBeenCalledWith(550);
+  });
+
+  it('should delegate updateRating to MovieService', async () => {
+    const params = { tmdbId: 550 };
+    const dto = { rating: 8.5 };
+
+    const result = await controller.updateRating(params, dto);
+
+    expect(result.rating).toBe(8.5);
+    expect(movieService.updateRating).toHaveBeenCalledWith(550, dto);
   });
 });

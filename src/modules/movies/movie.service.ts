@@ -1,5 +1,6 @@
 import {
   BadGatewayException,
+  BadRequestException,
   ConflictException,
   Injectable,
   InternalServerErrorException,
@@ -10,6 +11,7 @@ import { AxiosError } from 'axios';
 import { InjectPinoLogger, PinoLogger } from 'nestjs-pino';
 import { CreateFavoriteDto } from '../favorites/dto/create-favorite.dto';
 import { FavoriteMovieResponseDto } from '../favorites/dto/favorite-movie-response.dto';
+import { UpdateFavoriteRatingDto } from '../favorites/dto/update-favorite-rating.dto';
 import { FavoriteRepository } from '../favorites/favorite.repository';
 import {
   buildFavoriteTmdbCacheKey,
@@ -123,6 +125,43 @@ export class MovieService {
     this.logger.info(
       { tmdbId, watchedAt: updatedFavorite.watchedAt },
       'Favorite marked as watched',
+    );
+
+    return mapFavoriteToResponse(updatedFavorite);
+  }
+
+  async updateRating(
+    tmdbId: number,
+    dto: UpdateFavoriteRatingDto,
+  ): Promise<FavoriteMovieResponseDto> {
+    this.logger.info({ tmdbId, rating: dto.rating }, 'Updating favorite rating');
+
+    const favorite = await this.favoriteRepository.findByTmdbId(tmdbId);
+
+    if (!favorite) {
+      this.logger.warn({ tmdbId }, 'Favorite not found');
+
+      throw new NotFoundException(`Favorite with TMDB id ${tmdbId} not found`);
+    }
+
+    if (!favorite.watched) {
+      this.logger.warn(
+        { tmdbId },
+        'Cannot rate favorite that has not been watched',
+      );
+
+      throw new BadRequestException(
+        'Favorite must be marked as watched before rating',
+      );
+    }
+
+    const updatedFavorite = await this.favoriteRepository.update(tmdbId, {
+      rating: dto.rating,
+    });
+
+    this.logger.info(
+      { tmdbId, rating: updatedFavorite.rating },
+      'Favorite rating updated',
     );
 
     return mapFavoriteToResponse(updatedFavorite);
