@@ -95,6 +95,39 @@ export class MovieService {
     return mapFavoriteToResponse(favorite);
   }
 
+  async markAsWatched(tmdbId: number): Promise<FavoriteMovieResponseDto> {
+    this.logger.info({ tmdbId }, 'Marking favorite as watched');
+
+    const favorite = await this.favoriteRepository.findByTmdbId(tmdbId);
+
+    if (!favorite) {
+      this.logger.warn({ tmdbId }, 'Favorite not found');
+
+      throw new NotFoundException(`Favorite with TMDB id ${tmdbId} not found`);
+    }
+
+    if (favorite.watched) {
+      this.logger.info(
+        { tmdbId, watchedAt: favorite.watchedAt },
+        'Favorite is already marked as watched',
+      );
+
+      return mapFavoriteToResponse(favorite);
+    }
+
+    const updatedFavorite = await this.favoriteRepository.update(tmdbId, {
+      watched: true,
+      watchedAt: new Date(),
+    });
+
+    this.logger.info(
+      { tmdbId, watchedAt: updatedFavorite.watchedAt },
+      'Favorite marked as watched',
+    );
+
+    return mapFavoriteToResponse(updatedFavorite);
+  }
+
   async search(query: SearchMoviesQueryDto): Promise<SearchMoviesResponseDto> {
     const page = query.page ?? 1;
     const cacheKey = buildMoviesSearchCacheKey(query.query, page);

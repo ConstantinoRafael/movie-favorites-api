@@ -26,6 +26,7 @@ describe('MovieService', () => {
     findAll: jest.Mock;
     findByTmdbId: jest.Mock;
     create: jest.Mock;
+    update: jest.Mock;
   };
   let redis: { get: jest.Mock; set: jest.Mock };
   let tmdb: { searchMovies: jest.Mock; getMovie: jest.Mock };
@@ -72,6 +73,7 @@ describe('MovieService', () => {
       findAll: jest.fn().mockResolvedValue([{ tmdbId: 550 }]),
       findByTmdbId: jest.fn().mockResolvedValue(null),
       create: jest.fn(),
+      update: jest.fn(),
     };
 
     redis = {
@@ -251,6 +253,78 @@ describe('MovieService', () => {
 
       await expect(service.addFavorite({ tmdbId: 550 })).rejects.toBeInstanceOf(
         BadGatewayException,
+      );
+    });
+  });
+
+  describe('markAsWatched', () => {
+    const unwatchedFavorite = {
+      id: 1,
+      tmdbId: 550,
+      title: 'Fight Club',
+      overview: 'A ticking-time-bomb insomniac...',
+      releaseYear: 1999,
+      posterPath: '/poster.jpg',
+      voteAverage: 8.4,
+      watched: false,
+      watchedAt: null,
+      rating: null,
+      createdAt: new Date('2026-01-01T12:00:00.000Z'),
+      updatedAt: new Date('2026-01-01T12:00:00.000Z'),
+    };
+
+    const watchedFavorite = {
+      ...unwatchedFavorite,
+      watched: true,
+      watchedAt: new Date('2026-01-15T20:30:00.000Z'),
+    };
+
+    it('should mark favorite as watched', async () => {
+      favoriteRepository.findByTmdbId.mockResolvedValue(unwatchedFavorite);
+      favoriteRepository.update.mockResolvedValue(watchedFavorite);
+
+      const result = await service.markAsWatched(550);
+
+      expect(favoriteRepository.update).toHaveBeenCalledWith(550, {
+        watched: true,
+        watchedAt: expect.any(Date),
+      });
+      expect(result.watched).toBe(true);
+      expect(result.watchedAt).toEqual(watchedFavorite.watchedAt);
+      expect(logger.info).toHaveBeenCalledWith(
+        expect.objectContaining({ tmdbId: 550 }),
+        'Favorite marked as watched',
+      );
+    });
+
+    it('should return existing favorite when already watched', async () => {
+      favoriteRepository.findByTmdbId.mockResolvedValue(watchedFavorite);
+
+      const result = await service.markAsWatched(550);
+
+      expect(favoriteRepository.update).not.toHaveBeenCalled();
+      expect(result).toMatchObject({
+        tmdbId: 550,
+        watched: true,
+        watchedAt: watchedFavorite.watchedAt,
+      });
+      expect(logger.info).toHaveBeenCalledWith(
+        expect.objectContaining({ tmdbId: 550 }),
+        'Favorite is already marked as watched',
+      );
+    });
+
+    it('should throw NotFoundException when favorite does not exist', async () => {
+      favoriteRepository.findByTmdbId.mockResolvedValue(null);
+
+      await expect(service.markAsWatched(999)).rejects.toBeInstanceOf(
+        NotFoundException,
+      );
+
+      expect(favoriteRepository.update).not.toHaveBeenCalled();
+      expect(logger.warn).toHaveBeenCalledWith(
+        expect.objectContaining({ tmdbId: 999 }),
+        'Favorite not found',
       );
     });
   });

@@ -16,6 +16,7 @@ describe('Favorites (e2e)', () => {
     findAll: jest.Mock;
     findByTmdbId: jest.Mock;
     create: jest.Mock;
+    update: jest.Mock;
   };
   let redis: { get: jest.Mock; set: jest.Mock };
   let tmdb: { getMovie: jest.Mock };
@@ -52,6 +53,7 @@ describe('Favorites (e2e)', () => {
       findAll: jest.fn().mockResolvedValue([]),
       findByTmdbId: jest.fn().mockResolvedValue(null),
       create: jest.fn().mockResolvedValue(createdFavorite),
+      update: jest.fn(),
     };
 
     redis = {
@@ -91,7 +93,7 @@ describe('Favorites (e2e)', () => {
         findAll: favoriteRepository.findAll,
         findByTmdbId: favoriteRepository.findByTmdbId,
         create: favoriteRepository.create,
-        update: jest.fn(),
+        update: favoriteRepository.update,
         delete: jest.fn(),
       })
       .compile();
@@ -180,6 +182,60 @@ describe('Favorites (e2e)', () => {
       title: 'Fight Club (local)',
       voteAverage: 7.5,
     });
+  });
+
+  it('/favorites/:tmdbId/watch (PATCH) should mark favorite as watched', async () => {
+    const watchedFavorite = {
+      ...createdFavorite,
+      watched: true,
+      watchedAt: new Date('2026-01-15T20:30:00.000Z'),
+    };
+
+    favoriteRepository.findByTmdbId.mockResolvedValue(createdFavorite);
+    favoriteRepository.update.mockResolvedValue(watchedFavorite);
+
+    const response = await request(app.getHttpServer())
+      .patch('/favorites/550/watch')
+      .expect(200);
+
+    expect(response.body).toMatchObject({
+      tmdbId: 550,
+      watched: true,
+    });
+    expect(favoriteRepository.update).toHaveBeenCalledWith(550, {
+      watched: true,
+      watchedAt: expect.any(Date),
+    });
+  });
+
+  it('/favorites/:tmdbId/watch (PATCH) should return existing favorite when already watched', async () => {
+    const watchedFavorite = {
+      ...createdFavorite,
+      watched: true,
+      watchedAt: new Date('2026-01-15T20:30:00.000Z'),
+    };
+
+    favoriteRepository.findByTmdbId.mockResolvedValue(watchedFavorite);
+
+    const response = await request(app.getHttpServer())
+      .patch('/favorites/550/watch')
+      .expect(200);
+
+    expect(response.body.watched).toBe(true);
+    expect(favoriteRepository.update).not.toHaveBeenCalled();
+  });
+
+  it('/favorites/:tmdbId/watch (PATCH) should return 404 when favorite not found', async () => {
+    favoriteRepository.findByTmdbId.mockResolvedValue(null);
+
+    const response = await request(app.getHttpServer())
+      .patch('/favorites/999/watch')
+      .expect(404);
+
+    const body = response.body as { statusCode: number; message: string };
+
+    expect(body.statusCode).toBe(404);
+    expect(body.message).toBe('Favorite with TMDB id 999 not found');
   });
 
   it('/favorites (POST) should create a favorite', async () => {

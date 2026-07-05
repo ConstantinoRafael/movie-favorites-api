@@ -4,6 +4,8 @@ import {
   Get,
   HttpCode,
   HttpStatus,
+  Param,
+  Patch,
   Post,
 } from '@nestjs/common';
 import {
@@ -15,9 +17,10 @@ import {
   ApiNotFoundResponse,
   ApiOkResponse,
   ApiOperation,
+  ApiParam,
   ApiTags,
 } from '@nestjs/swagger';
-import { ErrorResponseDto } from '@common/dto';
+import { ErrorResponseDto, TmdbIdParamDto } from '@common/dto';
 import { API_TAGS } from '@common/swagger';
 import { MovieService } from '../movies/movie.service';
 import { CreateFavoriteDto } from './dto/create-favorite.dto';
@@ -76,5 +79,35 @@ export class FavoriteController {
   })
   create(@Body() dto: CreateFavoriteDto): Promise<FavoriteMovieResponseDto> {
     return this.movieService.addFavorite(dto);
+  }
+
+  @Patch(':tmdbId/watch')
+  @ApiOperation({ summary: 'Marcar filme favorito como assistido' })
+  @ApiParam({
+    name: 'tmdbId',
+    type: Number,
+    example: 550,
+    description: 'ID do filme no TMDB',
+  })
+  @ApiOkResponse({
+    description: 'Filme marcado como assistido (ou já estava assistido)',
+    type: FavoriteMovieResponseDto,
+  })
+  @ApiBadRequestResponse({
+    description: 'Parâmetro tmdbId inválido',
+    type: ErrorResponseDto,
+  })
+  @ApiNotFoundResponse({
+    description: 'Filme favorito não encontrado',
+    type: ErrorResponseDto,
+  })
+  @ApiInternalServerErrorResponse({
+    description: 'Erro interno ao processar a requisição',
+    type: ErrorResponseDto,
+  })
+  markAsWatched(
+    @Param() params: TmdbIdParamDto,
+  ): Promise<FavoriteMovieResponseDto> {
+    return this.movieService.markAsWatched(params.tmdbId);
   }
 }

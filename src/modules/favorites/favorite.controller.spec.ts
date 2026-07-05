@@ -5,7 +5,11 @@ import { FavoriteMovieResponseDto } from './dto/favorite-movie-response.dto';
 
 describe('FavoriteController', () => {
   let controller: FavoriteController;
-  let movieService: { addFavorite: jest.Mock; listFavorites: jest.Mock };
+  let movieService: {
+    addFavorite: jest.Mock;
+    listFavorites: jest.Mock;
+    markAsWatched: jest.Mock;
+  };
 
   const mockFavoriteResponse: FavoriteMovieResponseDto = {
     id: 1,
@@ -26,6 +30,11 @@ describe('FavoriteController', () => {
     movieService = {
       addFavorite: jest.fn().mockResolvedValue(mockFavoriteResponse),
       listFavorites: jest.fn().mockResolvedValue([mockFavoriteResponse]),
+      markAsWatched: jest.fn().mockResolvedValue({
+        ...mockFavoriteResponse,
+        watched: true,
+        watchedAt: new Date('2026-01-15T20:30:00.000Z'),
+      }),
     };
 
     const module: TestingModule = await Test.createTestingModule({
@@ -54,5 +63,14 @@ describe('FavoriteController', () => {
 
     expect(result).toEqual([mockFavoriteResponse]);
     expect(movieService.listFavorites).toHaveBeenCalled();
+  });
+
+  it('should delegate markAsWatched to MovieService', async () => {
+    const params = { tmdbId: 550 };
+
+    const result = await controller.markAsWatched(params);
+
+    expect(result.watched).toBe(true);
+    expect(movieService.markAsWatched).toHaveBeenCalledWith(550);
   });
 });
