@@ -3,4 +3,5 @@
  * Exporte decorators, filters, guards, interceptors e pipes aqui.
  */
 export * from './dto';
+export * from './exceptions';
 export * from './swagger';

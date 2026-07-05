@@ -1,3 +1,4 @@
+import { EnvironmentValidationException } from '../common/exceptions';
 import { plainToInstance, Type } from 'class-transformer';
 import { IsInt, IsString, IsUrl, Min, validateSync } from 'class-validator';
 
@@ -32,7 +33,7 @@ export function validateEnvironment(
   });
 
   if (errors.length > 0) {
-    throw new Error(
+    throw new EnvironmentValidationException(
       `Invalid environment variables:\n${errors
         .map((error) => Object.values(error.constraints ?? {}).join(', '))
         .join('\n')}`,

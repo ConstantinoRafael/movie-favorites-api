@@ -5,6 +5,7 @@ import { App } from 'supertest/types';
 import { AxiosError, AxiosHeaders } from 'axios';
 import { AppModule } from '../src/app.module';
 import { HttpExceptionFilter } from '../src/common/filters';
+import { validationExceptionFactory } from '../src/common/pipes';
 import { FavoriteRepository } from '../src/modules/favorites/favorite.repository';
 import { PrismaService } from '../src/prisma';
 import { RedisService } from '../src/redis';
@@ -105,6 +106,7 @@ describe('Favorites (e2e)', () => {
         forbidNonWhitelisted: true,
         transform: true,
         transformOptions: { enableImplicitConversion: true },
+        exceptionFactory: validationExceptionFactory,
       }),
     );
     app.useGlobalFilters(new HttpExceptionFilter());

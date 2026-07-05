@@ -3,6 +3,7 @@ import { NestFactory } from '@nestjs/core';
 import { Logger } from 'nestjs-pino';
 import { AppModule } from './app.module';
 import { HttpExceptionFilter } from './common/filters';
+import { validationExceptionFactory } from './common/pipes';
 import { setupSwagger } from './common/swagger';
 import { AppConfigService } from './config';
 
@@ -19,6 +20,7 @@ async function bootstrap(): Promise<void> {
       forbidNonWhitelisted: true,
       transform: true,
       transformOptions: { enableImplicitConversion: true },
+      exceptionFactory: validationExceptionFactory,
     }),
   );
 

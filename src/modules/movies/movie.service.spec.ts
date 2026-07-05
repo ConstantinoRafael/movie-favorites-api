@@ -1,12 +1,14 @@
 import {
   BadGatewayException,
-  BadRequestException,
-  ConflictException,
-  NotFoundException,
 } from '@nestjs/common';
 import { Test, TestingModule } from '@nestjs/testing';
 import { AxiosError, AxiosHeaders } from 'axios';
 import { getLoggerToken } from 'nestjs-pino';
+import {
+  MovieAlreadyFavoritedException,
+  MovieNotFoundException,
+  MovieNotWatchedException,
+} from '../../common/exceptions';
 import { FavoriteRepository } from '../favorites/favorite.repository';
 import {
   buildFavoriteTmdbCacheKey,
@@ -210,18 +212,18 @@ describe('MovieService', () => {
       expect(result.tmdbId).toBe(550);
     });
 
-    it('should throw ConflictException when movie is already favorited', async () => {
+    it('should throw MovieAlreadyFavoritedException when movie is already favorited', async () => {
       favoriteRepository.findByTmdbId.mockResolvedValue(createdFavorite);
 
       await expect(service.addFavorite({ tmdbId: 550 })).rejects.toBeInstanceOf(
-        ConflictException,
+        MovieAlreadyFavoritedException,
       );
 
       expect(tmdb.getMovie).not.toHaveBeenCalled();
       expect(favoriteRepository.create).not.toHaveBeenCalled();
     });
 
-    it('should throw NotFoundException when TMDB returns 404', async () => {
+    it('should throw MovieNotFoundException when TMDB returns 404', async () => {
       const axiosError = new AxiosError('Not Found');
       axiosError.response = {
         status: 404,
@@ -234,7 +236,7 @@ describe('MovieService', () => {
       tmdb.getMovie.mockRejectedValue(axiosError);
 
       await expect(service.addFavorite({ tmdbId: 999 })).rejects.toBeInstanceOf(
-        NotFoundException,
+        MovieNotFoundException,
       );
 
       expect(favoriteRepository.create).not.toHaveBeenCalled();
@@ -315,11 +317,11 @@ describe('MovieService', () => {
       );
     });
 
-    it('should throw NotFoundException when favorite does not exist', async () => {
+    it('should throw MovieNotFoundException when favorite does not exist', async () => {
       favoriteRepository.findByTmdbId.mockResolvedValue(null);
 
       await expect(service.markAsWatched(999)).rejects.toBeInstanceOf(
-        NotFoundException,
+        MovieNotFoundException,
       );
 
       expect(favoriteRepository.update).not.toHaveBeenCalled();
@@ -372,12 +374,12 @@ describe('MovieService', () => {
       );
     });
 
-    it('should throw BadRequestException when favorite is not watched', async () => {
+    it('should throw MovieNotWatchedException when favorite is not watched', async () => {
       favoriteRepository.findByTmdbId.mockResolvedValue(unwatchedFavorite);
 
       await expect(
         service.updateRating(550, { rating: 8.5 }),
-      ).rejects.toBeInstanceOf(BadRequestException);
+      ).rejects.toBeInstanceOf(MovieNotWatchedException);
 
       expect(favoriteRepository.update).not.toHaveBeenCalled();
       expect(logger.warn).toHaveBeenCalledWith(
@@ -386,12 +388,12 @@ describe('MovieService', () => {
       );
     });
 
-    it('should throw NotFoundException when favorite does not exist', async () => {
+    it('should throw MovieNotFoundException when favorite does not exist', async () => {
       favoriteRepository.findByTmdbId.mockResolvedValue(null);
 
       await expect(
         service.updateRating(999, { rating: 8.5 }),
-      ).rejects.toBeInstanceOf(NotFoundException);
+      ).rejects.toBeInstanceOf(MovieNotFoundException);
 
       expect(favoriteRepository.update).not.toHaveBeenCalled();
     });

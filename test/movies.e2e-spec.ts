@@ -4,6 +4,7 @@ import request from 'supertest';
 import { App } from 'supertest/types';
 import { AppModule } from '../src/app.module';
 import { HttpExceptionFilter } from '../src/common/filters';
+import { validationExceptionFactory } from '../src/common/pipes';
 import { FavoriteRepository } from '../src/modules/favorites/favorite.repository';
 import { PrismaService } from '../src/prisma';
 import { RedisService } from '../src/redis';
@@ -80,6 +81,7 @@ describe('Movies search (e2e)', () => {
         forbidNonWhitelisted: true,
         transform: true,
         transformOptions: { enableImplicitConversion: true },
+        exceptionFactory: validationExceptionFactory,
       }),
     );
     app.useGlobalFilters(new HttpExceptionFilter());
