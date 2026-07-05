@@ -16,6 +16,7 @@ import {
 } from '../favorites/favorites.constants';
 import { RedisService } from '../../redis';
 import { TmdbService } from '../../tmdb';
+import { TmdbCircuitOpenException } from '../../tmdb/tmdb-circuit-open.exception';
 import { SearchMoviesResponseDto } from './dto/search-movies-response.dto';
 import {
   buildMoviesSearchCacheKey,
@@ -505,6 +506,24 @@ describe('MovieService', () => {
       expect(logger.warn).toHaveBeenCalledWith(
         expect.objectContaining({ tmdbId: 550 }),
         'TMDB unavailable, using local fallback for favorite',
+      );
+    });
+
+    it('should fallback to local data when TMDB circuit is open', async () => {
+      redis.get.mockResolvedValue(null);
+      tmdb.getMovie.mockRejectedValue(new TmdbCircuitOpenException());
+
+      const result = await service.listFavorites();
+
+      expect(result).toHaveLength(1);
+      expect(result[0]).toMatchObject({
+        title: 'Fight Club (local)',
+        overview: 'Local overview...',
+        voteAverage: 8.0,
+      });
+      expect(logger.warn).toHaveBeenCalledWith(
+        expect.objectContaining({ tmdbId: 550, status: 'circuit_open' }),
+        'TMDB circuit open, using local fallback for favorite',
       );
     });
 

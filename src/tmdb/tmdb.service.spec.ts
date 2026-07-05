@@ -2,12 +2,14 @@ import { HttpService } from '@nestjs/axios';
 import { Test, TestingModule } from '@nestjs/testing';
 import { of } from 'rxjs';
 import { AppConfigService } from '../config';
+import { TmdbCircuitBreaker } from './tmdb-circuit-breaker';
 import { TmdbMovieDetails, TmdbSearchMoviesResponse } from './interfaces';
 import { TmdbService } from './tmdb.service';
 
 describe('TmdbService', () => {
   let service: TmdbService;
   let httpService: { get: jest.Mock };
+  let circuitBreaker: { execute: jest.Mock };
 
   const mockAppConfig = {
     tmdbApiKey: 'test-api-key',
@@ -47,11 +49,16 @@ describe('TmdbService', () => {
       get: jest.fn(),
     };
 
+    circuitBreaker = {
+      execute: jest.fn((action: () => Promise<unknown>) => action()),
+    };
+
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         TmdbService,
         { provide: HttpService, useValue: httpService },
         { provide: AppConfigService, useValue: mockAppConfig },
+        { provide: TmdbCircuitBreaker, useValue: circuitBreaker },
       ],
     }).compile();
 
@@ -63,12 +70,13 @@ describe('TmdbService', () => {
   });
 
   describe('searchMovies', () => {
-    it('should call TMDB search endpoint', async () => {
+    it('should call TMDB search endpoint through circuit breaker', async () => {
       httpService.get.mockReturnValue(of({ data: mockSearchResponse }));
 
       const result = await service.searchMovies('fight club', 1);
 
       expect(result).toEqual(mockSearchResponse);
+      expect(circuitBreaker.execute).toHaveBeenCalledTimes(1);
       expect(httpService.get).toHaveBeenCalledWith('/search/movie', {
         params: {
           api_key: mockAppConfig.tmdbApiKey,
@@ -80,12 +88,13 @@ describe('TmdbService', () => {
   });
 
   describe('getMovie', () => {
-    it('should call TMDB movie details endpoint', async () => {
+    it('should call TMDB movie details endpoint through circuit breaker', async () => {
       httpService.get.mockReturnValue(of({ data: mockMovieDetails }));
 
       const result = await service.getMovie(550);
 
       expect(result).toEqual(mockMovieDetails);
+      expect(circuitBreaker.execute).toHaveBeenCalledTimes(1);
       expect(httpService.get).toHaveBeenCalledWith('/movie/550', {
         params: {
           api_key: mockAppConfig.tmdbApiKey,

@@ -4,6 +4,7 @@ import { LoggerModule } from 'nestjs-pino';
 import { AppConfigModule } from '../config';
 import { AppConfigService } from '../config/app-config.service';
 import { TmdbHttpRetrySetup } from './tmdb-http-retry.setup';
+import { TmdbCircuitBreaker } from './tmdb-circuit-breaker';
 import { TmdbService } from './tmdb.service';
 
 @Module({
@@ -18,7 +19,7 @@ import { TmdbService } from './tmdb.service';
       }),
     }),
   ],
-  providers: [TmdbService, TmdbHttpRetrySetup],
+  providers: [TmdbCircuitBreaker, TmdbService, TmdbHttpRetrySetup],
   exports: [TmdbService],
 })
 export class TmdbModule {}

@@ -32,6 +32,7 @@ import {
   TmdbSearchMoviesResponse,
   TmdbService,
 } from '../../tmdb';
+import { TmdbCircuitOpenException } from '../../tmdb/tmdb-circuit-open.exception';
 import { SearchMoviesQueryDto } from './dto/search-movies-query.dto';
 import { SearchMoviesResponseDto } from './dto/search-movies-response.dto';
 import { mapTmdbSearchToResponse } from './mappers/search-movies.mapper';
@@ -283,16 +284,19 @@ export class MovieService {
 
       return mapTmdbMovieToSnapshot(tmdbMovie);
     } catch (error) {
+      const isCircuitOpen = error instanceof TmdbCircuitOpenException;
       const status =
         error instanceof AxiosError ? error.response?.status : undefined;
 
       this.logger.warn(
         {
           tmdbId,
-          status: status ?? 'unknown',
+          status: isCircuitOpen ? 'circuit_open' : (status ?? 'unknown'),
           err: error instanceof Error ? error.message : String(error),
         },
-        'Failed to fetch TMDB details for favorite enrichment',
+        isCircuitOpen
+          ? 'TMDB circuit open, using local fallback for favorite'
+          : 'Failed to fetch TMDB details for favorite enrichment',
       );
 
       return null;
@@ -363,6 +367,12 @@ export class MovieService {
   }
 
   private handleTmdbGetMovieError(error: unknown, tmdbId: number): never {
+    if (error instanceof TmdbCircuitOpenException) {
+      this.logger.warn({ tmdbId }, 'TMDB circuit open while fetching movie details');
+
+      throw new BadGatewayException('Failed to fetch movie from TMDB');
+    }
+
     if (error instanceof AxiosError) {
       const status = error.response?.status;
 
@@ -391,6 +401,12 @@ export class MovieService {
   }
 
   private handleTmdbError(error: unknown): never {
+    if (error instanceof TmdbCircuitOpenException) {
+      this.logger.warn({}, 'TMDB circuit open while searching movies');
+
+      throw new BadGatewayException('Failed to fetch movies from TMDB');
+    }
+
     if (error instanceof AxiosError) {
       const status = error.response?.status;
 
