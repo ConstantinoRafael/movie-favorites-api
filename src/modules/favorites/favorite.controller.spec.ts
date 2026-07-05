@@ -5,7 +5,7 @@ import { FavoriteMovieResponseDto } from './dto/favorite-movie-response.dto';
 
 describe('FavoriteController', () => {
   let controller: FavoriteController;
-  let movieService: { addFavorite: jest.Mock };
+  let movieService: { addFavorite: jest.Mock; listFavorites: jest.Mock };
 
   const mockFavoriteResponse: FavoriteMovieResponseDto = {
     id: 1,
@@ -25,6 +25,7 @@ describe('FavoriteController', () => {
   beforeEach(async () => {
     movieService = {
       addFavorite: jest.fn().mockResolvedValue(mockFavoriteResponse),
+      listFavorites: jest.fn().mockResolvedValue([mockFavoriteResponse]),
     };
 
     const module: TestingModule = await Test.createTestingModule({
@@ -46,5 +47,12 @@ describe('FavoriteController', () => {
 
     expect(result).toEqual(mockFavoriteResponse);
     expect(movieService.addFavorite).toHaveBeenCalledWith(dto);
+  });
+
+  it('should delegate findAll to MovieService', async () => {
+    const result = await controller.findAll();
+
+    expect(result).toEqual([mockFavoriteResponse]);
+    expect(movieService.listFavorites).toHaveBeenCalled();
   });
 });

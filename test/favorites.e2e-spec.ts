@@ -13,9 +13,11 @@ import { TmdbService } from '../src/tmdb';
 describe('Favorites (e2e)', () => {
   let app: INestApplication<App>;
   let favoriteRepository: {
+    findAll: jest.Mock;
     findByTmdbId: jest.Mock;
     create: jest.Mock;
   };
+  let redis: { get: jest.Mock; set: jest.Mock };
   let tmdb: { getMovie: jest.Mock };
 
   const tmdbMovieDetails = {
@@ -47,8 +49,14 @@ describe('Favorites (e2e)', () => {
 
   beforeEach(async () => {
     favoriteRepository = {
+      findAll: jest.fn().mockResolvedValue([]),
       findByTmdbId: jest.fn().mockResolvedValue(null),
       create: jest.fn().mockResolvedValue(createdFavorite),
+    };
+
+    redis = {
+      get: jest.fn().mockResolvedValue(null),
+      set: jest.fn().mockResolvedValue(undefined),
     };
 
     tmdb = {
@@ -69,8 +77,8 @@ describe('Favorites (e2e)', () => {
       .useValue({
         onModuleInit: jest.fn().mockResolvedValue(undefined),
         onModuleDestroy: jest.fn().mockResolvedValue(undefined),
-        get: jest.fn().mockResolvedValue(null),
-        set: jest.fn().mockResolvedValue(undefined),
+        get: redis.get,
+        set: redis.set,
         delete: jest.fn().mockResolvedValue(undefined),
       })
       .overrideProvider(TmdbService)
@@ -80,7 +88,7 @@ describe('Favorites (e2e)', () => {
       })
       .overrideProvider(FavoriteRepository)
       .useValue({
-        findAll: jest.fn().mockResolvedValue([]),
+        findAll: favoriteRepository.findAll,
         findByTmdbId: favoriteRepository.findByTmdbId,
         create: favoriteRepository.create,
         update: jest.fn(),
@@ -103,6 +111,75 @@ describe('Favorites (e2e)', () => {
 
   afterEach(async () => {
     await app.close();
+  });
+
+  it('/favorites (GET) should return enriched favorites from TMDB', async () => {
+    favoriteRepository.findAll.mockResolvedValue([createdFavorite]);
+
+    const response = await request(app.getHttpServer()).get('/favorites').expect(200);
+
+    expect(response.body).toHaveLength(1);
+    expect(response.body[0]).toMatchObject({
+      id: 1,
+      tmdbId: 550,
+      title: 'Fight Club',
+      overview: 'A ticking-time-bomb insomniac...',
+      voteAverage: 8.4,
+      watched: false,
+    });
+
+    expect(tmdb.getMovie).toHaveBeenCalledWith(550);
+    expect(redis.set).toHaveBeenCalled();
+  });
+
+  it('/favorites (GET) should use cache when available', async () => {
+    favoriteRepository.findAll.mockResolvedValue([createdFavorite]);
+
+    const cachedSnapshot = {
+      title: 'Fight Club (cached)',
+      overview: 'Cached overview',
+      releaseYear: 1999,
+      posterPath: '/cached-poster.jpg',
+      voteAverage: 9.0,
+    };
+
+    redis.get.mockResolvedValue(JSON.stringify(cachedSnapshot));
+
+    const response = await request(app.getHttpServer()).get('/favorites').expect(200);
+
+    expect(response.body[0]).toMatchObject({
+      title: 'Fight Club (cached)',
+      voteAverage: 9.0,
+    });
+    expect(tmdb.getMovie).not.toHaveBeenCalled();
+  });
+
+  it('/favorites (GET) should fallback to local data when TMDB fails', async () => {
+    const localFavorite = {
+      ...createdFavorite,
+      title: 'Fight Club (local)',
+      voteAverage: 7.5,
+    };
+
+    favoriteRepository.findAll.mockResolvedValue([localFavorite]);
+
+    const axiosError = new AxiosError('Bad Gateway');
+    axiosError.response = {
+      status: 502,
+      statusText: 'Bad Gateway',
+      headers: {},
+      config: { headers: new AxiosHeaders() },
+      data: {},
+    };
+
+    tmdb.getMovie.mockRejectedValue(axiosError);
+
+    const response = await request(app.getHttpServer()).get('/favorites').expect(200);
+
+    expect(response.body[0]).toMatchObject({
+      title: 'Fight Club (local)',
+      voteAverage: 7.5,
+    });
   });
 
   it('/favorites (POST) should create a favorite', async () => {

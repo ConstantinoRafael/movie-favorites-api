@@ -1,4 +1,11 @@
-import { Body, Controller, HttpCode, HttpStatus, Post } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Get,
+  HttpCode,
+  HttpStatus,
+  Post,
+} from '@nestjs/common';
 import {
   ApiBadGatewayResponse,
   ApiBadRequestResponse,
@@ -6,6 +13,7 @@ import {
   ApiCreatedResponse,
   ApiInternalServerErrorResponse,
   ApiNotFoundResponse,
+  ApiOkResponse,
   ApiOperation,
   ApiTags,
 } from '@nestjs/swagger';
@@ -19,6 +27,25 @@ import { FavoriteMovieResponseDto } from './dto/favorite-movie-response.dto';
 @Controller('favorites')
 export class FavoriteController {
   constructor(private readonly movieService: MovieService) {}
+
+  @Get()
+  @ApiOperation({
+    summary: 'Listar favoritos',
+    description:
+      'Retorna todos os favoritos enriquecidos com dados atualizados do TMDB. ' +
+      'Quando o TMDB estiver indisponível, retorna os dados locais persistidos.',
+  })
+  @ApiOkResponse({
+    description: 'Lista de favoritos enriquecidos com dados do TMDB',
+    type: [FavoriteMovieResponseDto],
+  })
+  @ApiInternalServerErrorResponse({
+    description: 'Erro interno ao processar a requisição',
+    type: ErrorResponseDto,
+  })
+  findAll(): Promise<FavoriteMovieResponseDto[]> {
+    return this.movieService.listFavorites();
+  }
 
   @Post()
   @HttpCode(HttpStatus.CREATED)

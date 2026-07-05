@@ -5,14 +5,22 @@ import {
   InternalServerErrorException,
   NotFoundException,
 } from '@nestjs/common';
+import { FavoriteMovie } from '@prisma/client';
 import { AxiosError } from 'axios';
 import { InjectPinoLogger, PinoLogger } from 'nestjs-pino';
 import { CreateFavoriteDto } from '../favorites/dto/create-favorite.dto';
 import { FavoriteMovieResponseDto } from '../favorites/dto/favorite-movie-response.dto';
 import { FavoriteRepository } from '../favorites/favorite.repository';
 import {
+  buildFavoriteTmdbCacheKey,
+  FAVORITE_TMDB_CACHE_TTL_SECONDS,
+} from '../favorites/favorites.constants';
+import {
   mapFavoriteToResponse,
   mapTmdbMovieToFavoriteSnapshot,
+  mapTmdbMovieToSnapshot,
+  mergeFavoriteWithTmdbSnapshot,
+  TmdbMovieSnapshot,
 } from '../favorites/mappers/favorite-movie.mapper';
 import { RedisService } from '../../redis';
 import {
@@ -37,6 +45,27 @@ export class MovieService {
     private readonly redis: RedisService,
     private readonly tmdb: TmdbService,
   ) {}
+
+  async listFavorites(): Promise<FavoriteMovieResponseDto[]> {
+    const startTime = performance.now();
+
+    this.logger.info('Listing favorites');
+
+    const favorites = await this.favoriteRepository.findAll();
+
+    const enrichedFavorites = await Promise.all(
+      favorites.map((favorite) => this.enrichFavoriteWithTmdb(favorite)),
+    );
+
+    const responseTimeMs = Math.round(performance.now() - startTime);
+
+    this.logger.info(
+      { count: favorites.length, responseTimeMs },
+      'Favorites listed',
+    );
+
+    return enrichedFavorites;
+  }
 
   async addFavorite(
     dto: CreateFavoriteDto,
@@ -90,6 +119,112 @@ export class MovieService {
     await this.cacheSearch(cacheKey, simplifiedResponse);
 
     return this.enrichWithFavorites(simplifiedResponse);
+  }
+
+  private async enrichFavoriteWithTmdb(
+    favorite: FavoriteMovie,
+  ): Promise<FavoriteMovieResponseDto> {
+    const cacheKey = buildFavoriteTmdbCacheKey(favorite.tmdbId);
+    const cachedSnapshot = await this.getCachedTmdbSnapshot(cacheKey);
+
+    if (cachedSnapshot) {
+      this.logger.info(
+        { tmdbId: favorite.tmdbId, cacheKey },
+        'Cache hit for favorite TMDB data',
+      );
+
+      return mergeFavoriteWithTmdbSnapshot(favorite, cachedSnapshot);
+    }
+
+    this.logger.info(
+      { tmdbId: favorite.tmdbId, cacheKey },
+      'Cache miss for favorite TMDB data',
+    );
+
+    const tmdbMovie = await this.fetchTmdbSnapshotForEnrichment(
+      favorite.tmdbId,
+    );
+
+    if (tmdbMovie) {
+      await this.cacheTmdbSnapshot(cacheKey, tmdbMovie);
+
+      return mergeFavoriteWithTmdbSnapshot(favorite, tmdbMovie);
+    }
+
+    this.logger.warn(
+      { tmdbId: favorite.tmdbId },
+      'TMDB unavailable, using local fallback for favorite',
+    );
+
+    return mapFavoriteToResponse(favorite);
+  }
+
+  private async getCachedTmdbSnapshot(
+    cacheKey: string,
+  ): Promise<TmdbMovieSnapshot | null> {
+    try {
+      const cached = await this.redis.get(cacheKey);
+
+      if (!cached) {
+        return null;
+      }
+
+      return JSON.parse(cached) as TmdbMovieSnapshot;
+    } catch (error) {
+      this.logger.warn(
+        { cacheKey, err: error instanceof Error ? error.message : String(error) },
+        'Failed to read TMDB cache for favorite. Falling back to TMDB',
+      );
+
+      return null;
+    }
+  }
+
+  private async cacheTmdbSnapshot(
+    cacheKey: string,
+    snapshot: TmdbMovieSnapshot,
+  ): Promise<void> {
+    try {
+      await this.redis.set(
+        cacheKey,
+        JSON.stringify(snapshot),
+        FAVORITE_TMDB_CACHE_TTL_SECONDS,
+      );
+
+      this.logger.info(
+        { cacheKey, ttlSeconds: FAVORITE_TMDB_CACHE_TTL_SECONDS },
+        'Cached TMDB data for favorite',
+      );
+    } catch (error) {
+      this.logger.warn(
+        { cacheKey, err: error instanceof Error ? error.message : String(error) },
+        'Failed to write TMDB cache for favorite',
+      );
+    }
+  }
+
+  private async fetchTmdbSnapshotForEnrichment(
+    tmdbId: number,
+  ): Promise<TmdbMovieSnapshot | null> {
+    try {
+      const tmdbMovie = await this.tmdb.getMovie(tmdbId);
+
+      return mapTmdbMovieToSnapshot(tmdbMovie);
+    } catch (error) {
+      const status =
+        error instanceof AxiosError ? error.response?.status : undefined;
+
+      this.logger.warn(
+        {
+          tmdbId,
+          status: status ?? 'unknown',
+          err: error instanceof Error ? error.message : String(error),
+        },
+        'Failed to fetch TMDB details for favorite enrichment',
+      );
+
+      return null;
+    }
   }
 
   private async getCachedSearch(

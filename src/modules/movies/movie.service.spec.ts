@@ -7,6 +7,10 @@ import { Test, TestingModule } from '@nestjs/testing';
 import { AxiosError, AxiosHeaders } from 'axios';
 import { getLoggerToken } from 'nestjs-pino';
 import { FavoriteRepository } from '../favorites/favorite.repository';
+import {
+  buildFavoriteTmdbCacheKey,
+  FAVORITE_TMDB_CACHE_TTL_SECONDS,
+} from '../favorites/favorites.constants';
 import { RedisService } from '../../redis';
 import { TmdbService } from '../../tmdb';
 import { SearchMoviesResponseDto } from './dto/search-movies-response.dto';
@@ -248,6 +252,136 @@ describe('MovieService', () => {
       await expect(service.addFavorite({ tmdbId: 550 })).rejects.toBeInstanceOf(
         BadGatewayException,
       );
+    });
+  });
+
+  describe('listFavorites', () => {
+    const storedFavorite = {
+      id: 1,
+      tmdbId: 550,
+      title: 'Fight Club (local)',
+      overview: 'Local overview...',
+      releaseYear: 1999,
+      posterPath: '/local-poster.jpg',
+      voteAverage: 8.0,
+      watched: false,
+      watchedAt: null,
+      rating: null,
+      createdAt: new Date('2026-01-01T12:00:00.000Z'),
+      updatedAt: new Date('2026-01-01T12:00:00.000Z'),
+    };
+
+    const tmdbSnapshot = {
+      title: 'Fight Club',
+      overview: 'Updated overview from TMDB',
+      releaseYear: 1999,
+      posterPath: '/updated-poster.jpg',
+      voteAverage: 8.8,
+    };
+
+    const tmdbMovieDetails = {
+      id: 550,
+      title: 'Fight Club',
+      overview: 'Updated overview from TMDB',
+      poster_path: '/updated-poster.jpg',
+      release_date: '1999-10-15',
+      vote_average: 8.8,
+      runtime: 139,
+      genres: [{ id: 18, name: 'Drama' }],
+      status: 'Released',
+    };
+
+    beforeEach(() => {
+      favoriteRepository.findAll.mockResolvedValue([storedFavorite]);
+    });
+
+    it('should return enriched favorites from cache on cache hit', async () => {
+      redis.get.mockResolvedValue(JSON.stringify(tmdbSnapshot));
+
+      const result = await service.listFavorites();
+
+      expect(redis.get).toHaveBeenCalledWith(buildFavoriteTmdbCacheKey(550));
+      expect(tmdb.getMovie).not.toHaveBeenCalled();
+      expect(result).toHaveLength(1);
+      expect(result[0]).toMatchObject({
+        id: 1,
+        tmdbId: 550,
+        title: 'Fight Club',
+        overview: 'Updated overview from TMDB',
+        voteAverage: 8.8,
+        watched: false,
+      });
+      expect(logger.info).toHaveBeenCalledWith(
+        expect.objectContaining({ tmdbId: 550 }),
+        'Cache hit for favorite TMDB data',
+      );
+    });
+
+    it('should fetch from TMDB and cache on cache miss', async () => {
+      redis.get.mockResolvedValue(null);
+      tmdb.getMovie.mockResolvedValue(tmdbMovieDetails);
+
+      const result = await service.listFavorites();
+
+      expect(tmdb.getMovie).toHaveBeenCalledWith(550);
+      expect(redis.set).toHaveBeenCalledWith(
+        buildFavoriteTmdbCacheKey(550),
+        JSON.stringify(tmdbSnapshot),
+        FAVORITE_TMDB_CACHE_TTL_SECONDS,
+      );
+      expect(result[0]?.voteAverage).toBe(8.8);
+      expect(logger.info).toHaveBeenCalledWith(
+        expect.objectContaining({ tmdbId: 550 }),
+        'Cache miss for favorite TMDB data',
+      );
+    });
+
+    it('should fallback to local data when TMDB is unavailable', async () => {
+      redis.get.mockResolvedValue(null);
+
+      const axiosError = new AxiosError('Bad Gateway');
+      axiosError.response = {
+        status: 502,
+        statusText: 'Bad Gateway',
+        headers: {},
+        config: { headers: new AxiosHeaders() },
+        data: {},
+      };
+
+      tmdb.getMovie.mockRejectedValue(axiosError);
+
+      const result = await service.listFavorites();
+
+      expect(result).toHaveLength(1);
+      expect(result[0]).toMatchObject({
+        title: 'Fight Club (local)',
+        overview: 'Local overview...',
+        voteAverage: 8.0,
+      });
+      expect(logger.warn).toHaveBeenCalledWith(
+        expect.objectContaining({ tmdbId: 550 }),
+        'TMDB unavailable, using local fallback for favorite',
+      );
+    });
+
+    it('should log response time after listing favorites', async () => {
+      redis.get.mockResolvedValue(JSON.stringify(tmdbSnapshot));
+
+      await service.listFavorites();
+
+      expect(logger.info).toHaveBeenCalledWith(
+        expect.objectContaining({ count: 1, responseTimeMs: expect.any(Number) }),
+        'Favorites listed',
+      );
+    });
+
+    it('should return empty array when there are no favorites', async () => {
+      favoriteRepository.findAll.mockResolvedValue([]);
+
+      const result = await service.listFavorites();
+
+      expect(result).toEqual([]);
+      expect(redis.get).not.toHaveBeenCalled();
     });
   });
 });
