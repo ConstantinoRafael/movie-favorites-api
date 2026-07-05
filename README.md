@@ -1,53 +1,111 @@
 # Movie Favorites API
 
-A production-oriented REST API for managing a personal movie watchlist. Users can search movies via [The Movie Database (TMDB)](https://www.themoviedb.org/), save favorites with local snapshots, mark films as watched, and assign personal ratings — with Redis caching, resilient TMDB integration, and structured logging.
+API REST para gerenciar filmes favoritos. Busca no [TMDB](https://www.themoviedb.org/), persiste snapshots locais, marca assistidos e registra notas. Redis para cache, retry + circuit breaker na integração com o TMDB, logs JSON via Pino.
+
+## 🚀 Início Rápido
+
+```bash
+git clone <repository-url>
+cd movie-favorites-api
+cp .env.example .env
+```
+
+Coloque sua `TMDB_API_KEY` no `.env` ([pegar chave](https://www.themoviedb.org/settings/api)).
+
+```bash
+docker compose up -d
+npm install && npx prisma migrate deploy
+```
+
+- **Swagger:** [http://localhost:3000/docs](http://localhost:3000/docs)
+- **Health Check:** [http://localhost:3000/health](http://localhost:3000/health)
+
+## ✅ Requisitos Atendidos
+
+| Requisito | Status |
+|-----------|--------|
+| Busca de filmes | ✅ |
+| Favoritos | ✅ |
+| Listagem de favoritos | ✅ |
+| Marcar como assistido | ✅ |
+| Avaliação | ✅ |
+| Validação de nota | ✅ |
+| Validação de duplicidade | ✅ |
+| Cache Redis | ✅ |
+| Retry | ✅ |
+| Circuit Breaker | ✅ |
+| Docker Compose | ✅ |
+| Swagger | ✅ |
+| Testes Unitários | ✅ |
+| Testes de Integração | ✅ |
+| Logs Estruturados | ✅ |
+| Fallback quando o TMDB estiver indisponível | ✅ |
+
+## ⭐ Diferenciais Implementados
+
+- **Redis Cache** — Cache read-through das respostas do TMDB (TTL 1h). Menos latência, menos chamadas externas.
+- **Retry** — Erros 5xx e timeout: até 3 tentativas com `axios-retry` antes de estourar o erro.
+- **Circuit Breaker** — Opossum abre o circuito quando o TMDB acumula falhas, evitando ficar batendo em serviço morto.
+- **Logs Estruturados** — Pino em JSON, pronto para mandar pro Datadog/CloudWatch/etc.
+- **Correlation ID** — `requestId` em toda requisição (`x-request-id` ou UUID gerado), propagado nos logs.
+- **Swagger** — Docs geradas dos decorators, em `/docs` com a app rodando.
+- **Testes** — Unitários (services, mappers, retry/circuit breaker) + integração HTTP com Supertest.
+- **Docker** — API, PostgreSQL e Redis sobem com `docker compose up`.
+- **Graceful Degradation** — `GET /favorites` responde 200 com snapshot local se o TMDB cair; writes retornam 502.
 
 ---
 
-## Table of Contents
+## Índice
 
-- [Features](#features)
-- [Architecture](#architecture)
-- [Tech Stack](#tech-stack)
-- [Project Structure](#project-structure)
-- [Application Flow](#application-flow)
-- [Getting Started with Docker Compose](#getting-started-with-docker-compose)
-- [Local Development](#local-development)
-- [Database Migrations](#database-migrations)
-- [Running Tests](#running-tests)
-- [Swagger Documentation](#swagger-documentation)
-- [Architectural Decisions](#architectural-decisions)
+- [Início Rápido](#-início-rápido)
+- [Requisitos Atendidos](#-requisitos-atendidos)
+- [Diferenciais Implementados](#-diferenciais-implementados)
+- [Funcionalidades](#funcionalidades)
+- [Arquitetura](#arquitetura)
+- [Stack Tecnológica](#stack-tecnológica)
+- [Por que NestJS?](#por-que-nestjs)
+- [Estrutura do Projeto](#estrutura-do-projeto)
+- [Modelo de Dados](#modelo-de-dados)
+- [Regras de Negócio Implementadas](#regras-de-negócio-implementadas)
+- [Fluxo da Aplicação](#fluxo-da-aplicação)
+- [Primeiros Passos com Docker Compose](#primeiros-passos-com-docker-compose)
+- [Desenvolvimento Local](#desenvolvimento-local)
+- [Migrations do Banco de Dados](#migrations-do-banco-de-dados)
+- [Executando os Testes](#executando-os-testes)
+- [Documentação Swagger](#documentação-swagger)
+- [Exemplos de Utilização da API](#exemplos-de-utilização-da-api)
+- [Decisões Arquiteturais](#decisões-arquiteturais)
 - [Trade-offs](#trade-offs)
-- [Future Improvements](#future-improvements)
+- [Melhorias Futuras](#melhorias-futuras)
 
 ---
 
-## Features
+## Funcionalidades
 
-- **Movie search** — Paginated TMDB search with Redis caching and favorite flag enrichment
-- **Favorites management** — Add movies with TMDB snapshot persistence
-- **Watch tracking** — Idempotent "mark as watched" endpoint
-- **Personal ratings** — Rate watched movies (0–10, up to 2 decimal places)
-- **Resilience** — Axios retry, circuit breaker (Opossum), and graceful TMDB fallback
-- **Observability** — Structured JSON logs via Pino with `requestId` correlation
-- **API documentation** — OpenAPI/Swagger UI
+- **Busca de filmes** — Paginação no TMDB, cache Redis, flag de favorito na resposta
+- **Favoritos** — Cadastro com snapshot persistido do TMDB
+- **Assistidos** — Endpoint idempotente para marcar como assistido
+- **Notas** — Avaliação de 0 a 10 (até 2 casas decimais)
+- **Resiliência** — Retry (Axios), circuit breaker (Opossum), fallback no TMDB
+- **Observabilidade** — Logs JSON (Pino) com `requestId`
+- **Docs** — OpenAPI/Swagger UI
 
 ---
 
-## Architecture
+## Arquitetura
 
-The application follows a **layered modular architecture** on NestJS:
+Camadas modulares no NestJS:
 
-| Layer | Responsibility |
+| Camada | Responsabilidade |
 |-------|----------------|
-| **Controller** | HTTP routing, DTO validation, Swagger metadata |
-| **Service** | Business rules and orchestration (`MovieService`) |
-| **Repository** | Database persistence (`FavoriteRepository` + Prisma) |
-| **Infrastructure** | External integrations (`TmdbService`, `RedisService`) |
+| **Controller** | Rotas HTTP, validação de DTOs, metadados Swagger |
+| **Service** | Regras de negócio e orquestração (`MovieService`) |
+| **Repository** | Persistência (`FavoriteRepository` + Prisma) |
+| **Infraestrutura** | Integrações externas (`TmdbService`, `RedisService`) |
 
-Cross-cutting concerns (logging, exception handling, validation) live in `src/common/`.
+Logging, exceções e validação global ficam em `src/common/`.
 
-### Architecture Diagram
+### Diagrama de Arquitetura
 
 ```mermaid
 flowchart TB
@@ -79,66 +137,106 @@ flowchart TB
 
 ---
 
-## Tech Stack
+## Stack Tecnológica
 
-| Category | Technology |
+| Categoria | Tecnologia |
 |----------|------------|
 | Runtime | Node.js 22 |
 | Framework | NestJS 11 |
-| Language | TypeScript 5 |
-| Database | PostgreSQL 16 + Prisma ORM |
+| Linguagem | TypeScript 5 |
+| Banco de dados | PostgreSQL 16 + Prisma ORM |
 | Cache | Redis 7 (ioredis) |
-| External API | TMDB REST API (Axios) |
-| Resilience | axios-retry, Opossum circuit breaker |
+| API externa | TMDB REST API (Axios) |
+| Resiliência | axios-retry, Opossum circuit breaker |
 | Logging | Pino (nestjs-pino) |
-| Validation | class-validator, class-transformer |
-| Documentation | Swagger / OpenAPI |
-| Testing | Jest, Supertest |
-| Containerization | Docker, Docker Compose |
+| Validação | class-validator, class-transformer |
+| Documentação | Swagger / OpenAPI |
+| Testes | Jest, Supertest |
+| Containerização | Docker, Docker Compose |
+
+## Por que NestJS?
+
+O projeto tem vários pedaços distintos — busca, favoritos, cache, TMDB, resiliência — e o NestJS organiza isso em módulos (`movies`, `favorites`, `tmdb`, `redis`) sem virar pasta solta com imports cruzados. Cada módulo encapsula o que é dele.
+
+A injeção de dependência deixa o fluxo explícito: controller → service → repository/cliente externo. Na prática, isso facilita mockar dependência no teste e manter camadas separadas. Controllers cuidam de HTTP; services concentram a regra de negócio.
+
+Para testes, o `TestingModule` monta o grafo de DI com mocks onde precisar — usei isso nos unitários de service/mapper/resiliência e nos e2e com Supertest. Swagger via decorators mantém contrato e código no mesmo lugar, sem doc desatualizada.
+
+O escopo hoje é pequeno, mas o mesmo layout aguenta auth, rate limit ou fila sem reescrever tudo. TypeScript + pipes de validação + filters globais já vêm no pacote. Foi a escolha mais pragmática pra entregar algo organizado rápido, sem abrir mão de estrutura.
 
 ---
 
-## Project Structure
+## Estrutura do Projeto
 
 ```
 movie-favorites-api/
 ├── prisma/
-│   ├── schema.prisma          # Database schema
-│   └── migrations/            # Versioned SQL migrations
+│   ├── schema.prisma          # Schema do banco de dados
+│   └── migrations/            # Migrations SQL versionadas
 ├── src/
-│   ├── main.ts                # Application bootstrap
-│   ├── app.module.ts          # Root module
-│   ├── common/                # Cross-cutting concerns
-│   │   ├── exceptions/        # Domain exceptions
-│   │   ├── filters/           # Global HTTP exception filter
-│   │   ├── interceptors/      # Request logging interceptor
-│   │   ├── logging/           # Pino configuration & log events
-│   │   ├── pipes/             # Validation exception factory
-│   │   └── swagger/           # Swagger setup
-│   ├── config/                # Environment validation & config service
+│   ├── main.ts                # Bootstrap da aplicação
+│   ├── app.module.ts          # Módulo raiz
+│   ├── common/                # Cross-cutting (logs, filters, pipes)
+│   │   ├── exceptions/        # Exceções de domínio
+│   │   ├── filters/           # Filtro global de exceções HTTP
+│   │   ├── interceptors/      # Interceptor de logging de requisições
+│   │   ├── logging/           # Configuração Pino e eventos de log
+│   │   ├── pipes/             # Factory de exceções de validação
+│   │   └── swagger/           # Configuração Swagger
+│   ├── config/                # Validação de ambiente e config service
 │   ├── modules/
-│   │   ├── favorites/         # Favorite controller, repository, DTOs
-│   │   ├── movies/            # Movie controller, service, mappers
-│   │   └── health/            # Health check endpoint
-│   ├── prisma/                # Prisma module & service
-│   ├── redis/                 # Redis module & service
-│   └── tmdb/                  # TMDB client, retry & circuit breaker
+│   │   ├── favorites/         # Controller, repository e DTOs de favoritos
+│   │   ├── movies/            # Controller, service e mappers de filmes
+│   │   └── health/            # Endpoint de health check
+│   ├── prisma/                # Módulo e service Prisma
+│   ├── redis/                 # Módulo e service Redis
+│   └── tmdb/                  # Cliente TMDB, retry e circuit breaker
 ├── test/
-│   ├── favorites.e2e-spec.ts  # Integration tests (Supertest)
+│   ├── favorites.e2e-spec.ts  # Testes de integração (Supertest)
 │   ├── movies.e2e-spec.ts
-│   └── helpers/               # Test app factory & fixtures
+│   └── helpers/               # Factory de app de teste e fixtures
 ├── docker-compose.yml
 ├── Dockerfile
 └── .env.example
 ```
 
+## Modelo de Dados
+
+**Favorite** é um filme salvo na lista do usuário. A chave de negócio é o `tmdbId`; o resto divide-se em estado local (`watched`, `rating`) e metadados do filme gravados no cadastro.
+
+`title`, `releaseYear`, `overview` e `posterPath` vão pro banco como **snapshot** — cópia do que o TMDB devolveu na hora do favoritar. Se o TMDB cair depois, a listagem ainda funciona com esses dados; enriquecimento em tempo real é tentado quando dá.
+
+| Campo | Tipo | Descrição |
+|-------|------|-----------|
+| `id` | `Int` | PK interna |
+| `tmdbId` | `Int` | ID no TMDB (unique) |
+| `title` | `String` | Título (snapshot) |
+| `releaseYear` | `Int` | Ano de lançamento (snapshot) |
+| `overview` | `Text` | Sinopse (snapshot) |
+| `posterPath` | `String?` | Poster no TMDB (snapshot) |
+| `watched` | `Boolean` | Filme assistido? |
+| `watchedAt` | `DateTime?` | Quando marcou como assistido |
+| `rating` | `Float?` | Nota pessoal (0–10) |
+| `createdAt` | `DateTime` | Criação do registro |
+| `updatedAt` | `DateTime` | Última atualização |
+
+## Regras de Negócio Implementadas
+
+| Regra | Comportamento da API |
+|-------|----------------------|
+| Não permitir favoritos duplicados | `409 Conflict` se o `tmdbId` já existir |
+| Nota entre 0 e 10 | DTO valida intervalo e até 2 decimais → `400 Bad Request` |
+| Só avaliar após assistir | `400 Bad Request` com `watched: false` |
+| Snapshot local | Metadados do TMDB gravados no PostgreSQL no `POST /favorites`; usados quando enriquecimento falha |
+| Fallback do TMDB | `GET /favorites` → `200` com dados locais; `POST /favorites` e `GET /movies/search` → `502` sem TMDB |
+
 ---
 
-## Application Flow
+## Fluxo da Aplicação
 
-### Request Flow
+### Fluxo de Requisição
 
-Every HTTP request passes through the global pipeline before reaching a controller:
+Pipeline global antes do controller:
 
 ```mermaid
 sequenceDiagram
@@ -167,9 +265,9 @@ sequenceDiagram
     F-->>C: { statusCode, message, timestamp, path }
 ```
 
-### Cache Flow
+### Fluxo de Cache
 
-Redis is used as a read-through cache for TMDB responses. TTL is **1 hour** for both search results and favorite enrichment.
+Redis em read-through para respostas do TMDB. TTL **1 hora** na busca e no enriquecimento de favoritos.
 
 ```mermaid
 flowchart TD
@@ -187,16 +285,16 @@ flowchart TD
     H -->|No| K[See Fallback Flow]
 ```
 
-**Cache keys:**
+**Chaves de cache:**
 
-| Purpose | Key pattern | TTL |
+| Propósito | Padrão da chave | TTL |
 |---------|-------------|-----|
-| Movie search | `movies:search:{query}:{page}` | 3600s |
-| Favorite enrichment | `favorites:tmdb:{tmdbId}` | 3600s |
+| Busca de filmes | `movies:search:{query}:{page}` | 3600s |
+| Enriquecimento de favoritos | `favorites:tmdb:{tmdbId}` | 3600s |
 
-### Fallback Flow
+### Fluxo de Fallback
 
-When TMDB is unavailable, behavior depends on the operation:
+Comportamento quando o TMDB falha:
 
 ```mermaid
 flowchart TD
@@ -223,16 +321,16 @@ flowchart TD
 
 ---
 
-## Getting Started with Docker Compose
+## Primeiros Passos com Docker Compose
 
-### Prerequisites
+### Pré-requisitos
 
 - Docker & Docker Compose
-- A [TMDB API key](https://www.themoviedb.org/settings/api)
+- [Chave de API do TMDB](https://www.themoviedb.org/settings/api)
 
-### Steps
+### Passos
 
-1. **Clone and configure environment**
+1. **Clone e `.env`**
 
    ```bash
    git clone <repository-url>
@@ -240,38 +338,38 @@ flowchart TD
    cp .env.example .env
    ```
 
-   Edit `.env` and set your `TMDB_API_KEY`.
+   Preencha `TMDB_API_KEY` no `.env`.
 
-2. **Start infrastructure services**
+2. **Sobe postgres e redis**
 
    ```bash
    docker compose up -d postgres redis
    ```
 
-3. **Run database migrations**
+3. **Roda migrations**
 
    ```bash
    npm install
    npx prisma migrate deploy
    ```
 
-4. **Start the full stack**
+4. **Sobe tudo**
 
    ```bash
    docker compose up -d
    ```
 
-5. **Verify the API is healthy**
+5. **Confere health**
 
    ```bash
    curl http://localhost:3000/health
    ```
 
-The API will be available at `http://localhost:3000`.
+API em `http://localhost:3000`.
 
-### Docker Services
+### Serviços Docker
 
-| Service | Container | Port |
+| Serviço | Container | Porta |
 |---------|-----------|------|
 | API | `movie-favorites-api` | 3000 |
 | PostgreSQL | `movie-favorites-postgres` | 5432 |
@@ -279,9 +377,9 @@ The API will be available at `http://localhost:3000`.
 
 ---
 
-## Local Development
+## Desenvolvimento Local
 
-Run the API on your machine while using Docker only for PostgreSQL and Redis:
+API na máquina local; Docker só pro PostgreSQL e Redis:
 
 ```bash
 # 1. Start dependencies
@@ -301,100 +399,100 @@ npm run prisma:migrate
 npm run start:dev
 ```
 
-### Useful Scripts
+### Scripts Úteis
 
-| Command | Description |
+| Comando | Descrição |
 |---------|-------------|
-| `npm run start:dev` | Start with hot reload |
-| `npm run build` | Compile for production |
-| `npm run start:prod` | Run compiled build |
-| `npm run lint` | ESLint with auto-fix |
-| `npm run format` | Prettier formatting |
-| `npm run prisma:studio` | Open Prisma Studio GUI |
+| `npm run start:dev` | Dev com hot reload |
+| `npm run build` | Build de produção |
+| `npm run start:prod` | Roda o build |
+| `npm run lint` | ESLint + fix |
+| `npm run format` | Prettier |
+| `npm run prisma:studio` | Prisma Studio |
 
 ---
 
-## Database Migrations
+## Migrations do Banco de Dados
 
-Migrations are managed with [Prisma Migrate](https://www.prisma.io/docs/concepts/components/prisma-migrate).
+Gerenciadas com [Prisma Migrate](https://www.prisma.io/docs/concepts/components/prisma-migrate).
 
-### Development (creates migration files)
+### Desenvolvimento (cria arquivos de migration)
 
 ```bash
 npm run prisma:migrate
 # equivalent to: npx prisma migrate dev
 ```
 
-### Production / CI (applies existing migrations)
+### Produção / CI (aplica migrations existentes)
 
 ```bash
 npx prisma migrate deploy
 ```
 
-### Regenerate Prisma Client
+### Regenerar o Prisma Client
 
 ```bash
 npm run prisma:generate
 ```
 
-> **Note:** The production Docker image does not include the Prisma CLI. Run `migrate deploy` from the host (or a CI job) before starting the API container.
+> **Nota:** A imagem Docker de produção não traz Prisma CLI. Rode `migrate deploy` no host ou no CI antes de subir o container da API.
 
 ---
 
-## Running Tests
+## Executando os Testes
 
-### Unit Tests
+### Testes Unitários
 
-Tests business logic in isolation with mocked dependencies:
+Lógica isolada, dependências mockadas:
 
 ```bash
 npm test
 ```
 
-### Integration Tests (Supertest)
+### Testes de Integração (Supertest)
 
-Tests the full HTTP pipeline (controllers, pipes, filters) with mocked infrastructure:
+Pipeline HTTP completo (controllers, pipes, filters), infra mockada:
 
 ```bash
 npm run test:e2e
 ```
 
-### Coverage
+### Cobertura
 
 ```bash
 npm run test:cov
 ```
 
-| Type | Location | What it validates |
+| Tipo | Localização | O que valida |
 |------|----------|-------------------|
-| Unit | `src/**/*.spec.ts` | Service methods, mappers, retry/circuit breaker |
-| Integration | `test/*.e2e-spec.ts` | HTTP status, response body, error format |
+| Unitário | `src/**/*.spec.ts` | Services, mappers, retry/circuit breaker |
+| Integração | `test/*.e2e-spec.ts` | Status HTTP, body, formato de erro |
 
 ---
 
-## Swagger Documentation
+## Documentação Swagger
 
-Interactive API documentation is available when the application is running:
+Com a app rodando:
 
-| Resource | URL |
+| Recurso | URL |
 |----------|-----|
 | Swagger UI | [http://localhost:3000/docs](http://localhost:3000/docs) |
 | OpenAPI JSON | [http://localhost:3000/docs-json](http://localhost:3000/docs-json) |
 
-### API Endpoints
+### Endpoints da API
 
-| Method | Path | Description |
+| Método | Caminho | Descrição |
 |--------|------|-------------|
 | `GET` | `/health` | Health check |
-| `GET` | `/movies/search` | Search movies on TMDB |
-| `GET` | `/favorites` | List favorites (TMDB-enriched) |
-| `POST` | `/favorites` | Add a movie to favorites |
-| `PATCH` | `/favorites/:tmdbId/watch` | Mark as watched |
-| `PATCH` | `/favorites/:tmdbId/rating` | Rate a watched movie |
+| `GET` | `/movies/search` | Buscar filmes no TMDB |
+| `GET` | `/favorites` | Listar favoritos (enriquecidos pelo TMDB) |
+| `POST` | `/favorites` | Adicionar filme aos favoritos |
+| `PATCH` | `/favorites/:tmdbId/watch` | Marcar como assistido |
+| `PATCH` | `/favorites/:tmdbId/rating` | Avaliar filme assistido |
 
-### Error Response Format
+### Formato de Resposta de Erro
 
-All errors follow a consistent structure:
+Erros seguem sempre este shape:
 
 ```json
 {
@@ -407,80 +505,171 @@ All errors follow a consistent structure:
 
 ---
 
-## Architectural Decisions
+## Exemplos de Utilização da API
 
-### Thin controllers, fat service
+Espaço reservado para prints do Postman nas operações principais.
 
-Controllers delegate all business logic to `MovieService`. This keeps HTTP concerns separate from domain rules and simplifies unit testing.
+### Buscar filmes
 
-### Local snapshots instead of TMDB as source of truth
+`GET /movies/search?query=fight+club&page=1`
 
-Favorites store a snapshot (title, overview, poster, vote average) at the time of favoriting. TMDB is used for **enrichment** on read, not as the primary data store. This ensures favorites remain usable even when TMDB data changes or becomes unavailable.
+<!-- Inserir print do Postman aqui -->
 
-### Single service for movies and favorites
+Busca paginada no TMDB: parâmetros `query`/`page`, `200 OK`, lista com flag de favorito por filme.
 
-`MovieService` handles both search and favorites operations because they share TMDB integration, caching, and enrichment logic. Modules remain separate at the controller/repository level.
+### Favoritar filme
 
-### Graceful degradation on read, fail-fast on write
+`POST /favorites`
 
-- `GET /favorites` returns local data when TMDB fails (HTTP 200)
-- `POST /favorites` and `GET /movies/search` return HTTP 502 when TMDB is unreachable
+```json
+{ "tmdbId": 550 }
+```
 
-This reflects the user expectation: reading stale data is acceptable; creating incomplete records is not.
+<!-- Inserir print do Postman aqui -->
 
-### Structured logging with request correlation
+Cadastro via `tmdbId`: body da request, `201 Created`, resposta com snapshot (título, sinopse, poster…).
 
-Pino replaces `console.log`. Every log within an HTTP request includes a `requestId` (from `x-request-id` header or auto-generated UUID), enabling end-to-end traceability in production log aggregators.
+### Listar favoritos
 
-### Domain exceptions over generic errors
+`GET /favorites`
 
-Business errors (`MovieAlreadyFavoritedException`, `MovieNotFoundException`, etc.) map to specific HTTP status codes via a global exception filter, keeping error handling consistent across the API.
+<!-- Inserir print do Postman aqui -->
+
+Lista enriquecida pelo TMDB: `200 OK`, array com campos locais (`watched`, `rating`) + metadados.
+
+### Marcar como assistido
+
+`PATCH /favorites/550/watch`
+
+<!-- Inserir print do Postman aqui -->
+
+Idempotente: `tmdbId` na URL, `200 OK`, `watched: true` e `watchedAt` preenchido.
+
+### Avaliar filme
+
+`PATCH /favorites/550/rating`
+
+```json
+{ "rating": 8.5 }
+```
+
+<!-- Inserir print do Postman aqui -->
+
+Nota entre 0–10 no body, `200 OK`, favorito atualizado com `rating`.
+
+### Funcionamento do Cache
+
+`GET /movies/search?query=fight+club&page=1` *(mesma request repetida)*
+
+**Primeira requisição**
+
+<!-- Inserir print do Postman aqui — primeira requisição -->
+
+Cache miss: vai no TMDB, grava no Redis, responde. Tempo de resposta maior — chamada HTTP externa.
+
+**Segunda requisição**
+
+<!-- Inserir print do Postman aqui — segunda requisição -->
+
+Cache hit: lê do Redis, TMDB nem é chamado. Tempo bem menor na mesma busca.
+
+Primeira vez: sem chave no Redis → TMDB → grava JSON (TTL 1h) → responde. Repetindo os mesmos params, sai direto do Redis — menos latência e menos uso da cota TMDB.
+
+### Fallback quando o TMDB está indisponível
+
+TMDB fora ou circuit breaker aberto:
+
+- **`GET /favorites`** — `200 OK` com snapshot do PostgreSQL, sem depender de enriquecimento.
+- **`POST /favorites`** e **`GET /movies/search`** — `502 Bad Gateway` (precisam de dado fresco do TMDB).
+
+`GET /favorites` *(TMDB indisponível)*
+
+<!-- Inserir print da resposta -->
+
+Listagem respondendo `200 OK` com metadados locais (`title`, `overview`, `posterPath`…) — TMDB fora do ar.
+
+<!-- Inserir print dos logs -->
+
+Log `fallback` com `reason: tmdb_unavailable` ou `reason: circuit_open` — API caiu pro dado local em vez de quebrar a request.
+
+Esse é o requisito central do fallback: listar favoritos continua funcionando com o que foi persistido no cadastro, mesmo sem TMDB.
+
+---
+
+## Decisões Arquiteturais
+
+### Controllers finos, service robusto
+
+Controllers só roteiam e validam; regra de negócio fica no `MovieService`. Separa HTTP de domínio e deixa unit test mais simples.
+
+### Snapshot local, TMDB só enriquece
+
+No favoritar, grava título/sinopse/poster/nota TMDB no banco. Na leitura, tenta atualizar via TMDB, mas o dado local manda se a API externa falhar ou mudar.
+
+### Um service pra filmes e favoritos
+
+`MovieService` concentra busca e favoritos porque compartilham TMDB, cache e enriquecimento. Módulos separados no controller/repository.
+
+### Degrada na leitura, falha na escrita
+
+- `GET /favorites` → 200 com dado local se TMDB cair
+- `POST /favorites` / `GET /movies/search` → 502 sem TMDB
+
+Ler dado velho é ok; criar favorito ou buscar sem TMDB não.
+
+### Logs com requestId
+
+Pino no lugar de `console.log`. Todo log da request carrega `requestId` (`x-request-id` ou UUID) — dá pra seguir o fluxo no agregador.
+
+### Exceções de domínio
+
+`MovieAlreadyFavoritedException`, `MovieNotFoundException`, etc. mapeiam pra status HTTP no filter global. Erro consistente em toda a API.
 
 ---
 
 ## Trade-offs
 
-| Decision | Benefit | Cost |
+| Decisão | Benefício | Custo |
 |----------|---------|------|
-| **TMDB snapshots** | Resilient reads, no data loss on TMDB outage | Stale metadata until next cache refresh |
-| **Redis cache (1h TTL)** | Reduced TMDB API calls, faster responses | Possible stale search/enrichment data |
-| **Circuit breaker** | Prevents cascade failures under TMDB stress | Temporary 502 on writes while circuit is open |
-| **Single `MovieService`** | Shared caching/TMDB logic, less duplication | Service grows with new features; may need splitting later |
-| **No authentication** | Simpler API, faster development | Not suitable for multi-user production without adding auth |
-| **Prisma Migrate (manual in Docker)** | Explicit, auditable schema changes | Requires a migration step outside the container startup |
-| **Parallel TMDB enrichment** | Fast `GET /favorites` with many items | Higher burst load on TMDB when cache is cold |
+| **Snapshots do TMDB** | Leitura funciona com TMDB fora | Metadados podem ficar desatualizados até o cache renovar |
+| **Cache Redis (TTL 1h)** | Menos hit no TMDB, resposta mais rápida | Busca/enriquecimento podem servir dado velho |
+| **Circuit breaker** | Para de martelar TMDB degradado | 502 em writes enquanto circuito aberto |
+| **Service único `MovieService`** | Cache/TMDB num lugar só | Service cresce; pode precisar split depois |
+| **Sem autenticação** | Menos complexidade no escopo atual | Multi-usuário exige auth |
+| **Prisma Migrate manual no Docker** | Schema explícito e auditável | Migration roda fora do startup do container |
+| **Enriquecimento TMDB em paralelo** | `GET /favorites` rápido com muitos itens | Burst no TMDB quando cache frio |
 
 ---
 
-## Future Improvements
+## Melhorias Futuras
 
-- **Authentication & authorization** — JWT or OAuth2 for multi-user support (Swagger already reserves Bearer auth)
-- **Automated migrations in Docker** — Entrypoint script running `prisma migrate deploy` on container start
-- **Rate limiting** — Protect TMDB quota and prevent abuse (`@nestjs/throttler`)
-- **Pagination on favorites** — `GET /favorites` currently returns all records
-- **Cache invalidation strategy** — Event-driven invalidation when favorites change
-- **Metrics & tracing** — Prometheus metrics and OpenTelemetry distributed tracing
-- **CI/CD pipeline** — GitHub Actions for lint, test, build, and deploy
-- **API versioning** — `/v1/` prefix for backward-compatible evolution
-- **Soft delete** — Allow removing favorites without permanent deletion
-- **Webhook / event bus** — Notify external systems on favorite changes
+- **Auth** — JWT/OAuth2 multi-usuário (Swagger já tem slot Bearer)
+- **Migrations no Docker** — Entrypoint com `prisma migrate deploy`
+- **Rate limiting** — Proteger cota TMDB (`@nestjs/throttler`)
+- **Paginação em favoritos** — Hoje `GET /favorites` traz tudo
+- **Invalidação de cache** — Invalidar quando favorito muda
+- **Métricas/tracing** — Prometheus + OpenTelemetry
+- **CI/CD** — GitHub Actions (lint, test, build, deploy)
+- **Versionamento** — Prefixo `/v1/`
+- **Soft delete** — Remover favorito sem apagar de vez
+- **Webhook/event bus** — Notificar mudanças em favoritos
 
 ---
 
-## Environment Variables
+## Variáveis de Ambiente
 
-See [`.env.example`](.env.example) for the full list. Required variables:
+Lista completa no [`.env.example`](.env.example). Obrigatórias:
 
-| Variable | Description |
+| Variável | Descrição |
 |----------|-------------|
-| `APP_PORT` | HTTP port (default: `3000`) |
-| `DATABASE_URL` | PostgreSQL connection string |
-| `REDIS_URL` | Redis connection string |
-| `TMDB_API_KEY` | TMDB API key |
-| `TMDB_BASE_URL` | TMDB API base URL (default: `https://api.themoviedb.org/3`) |
+| `APP_PORT` | Porta HTTP (default: `3000`) |
+| `DATABASE_URL` | Connection string PostgreSQL |
+| `REDIS_URL` | Connection string Redis |
+| `TMDB_API_KEY` | Chave TMDB |
+| `TMDB_BASE_URL` | Base URL TMDB (default: `https://api.themoviedb.org/3`) |
 
 ---
 
-## License
+## Licença
 
-UNLICENSED — Private project.
+UNLICENSED — Projeto privado.
