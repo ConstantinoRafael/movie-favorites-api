@@ -1,32 +1,19 @@
 import { INestApplication } from '@nestjs/common';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
-import {
-  API_TAGS,
-  BEARER_AUTH_SCHEME,
-  SWAGGER_PATH,
-} from './swagger.constants';
+import { API_TAGS, SWAGGER_PATH } from './swagger.constants';
 
 export function setupSwagger(app: INestApplication): void {
   const config = new DocumentBuilder()
     .setTitle('Movie Favorites API')
     .setDescription(
-      'API para gerenciamento de filmes favoritos com integração ao TMDB. ' +
-        'Armazena snapshots locais dos filmes favoritados e permite registrar ' +
-        'status de visualização e avaliação pessoal.',
+      'API for managing a personal movie watchlist with TMDB integration. ' +
+        'Stores local snapshots of favorited movies and supports watch status ' +
+        'and personal ratings.',
     )
     .setVersion('1.0')
-    .addBearerAuth(
-      {
-        type: 'http',
-        scheme: 'bearer',
-        bearerFormat: 'JWT',
-        description: 'Token JWT de autenticação',
-      },
-      BEARER_AUTH_SCHEME,
-    )
-    .addTag(API_TAGS.HEALTH, 'Verificação de saúde da aplicação')
-    .addTag(API_TAGS.FAVORITES, 'Gerenciamento de filmes favoritos')
-    .addTag(API_TAGS.MOVIES, 'Busca e consulta de filmes no TMDB')
+    .addTag(API_TAGS.HEALTH, 'Application health check')
+    .addTag(API_TAGS.FAVORITES, 'Favorite movie management')
+    .addTag(API_TAGS.MOVIES, 'TMDB movie search')
     .build();
 
   const document = SwaggerModule.createDocument(app, config, {

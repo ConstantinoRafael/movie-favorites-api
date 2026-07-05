@@ -1,19 +1,10 @@
+import { extractReleaseYear } from '@common/utils';
 import {
   TmdbMovieSummary,
   TmdbSearchMoviesResponse,
 } from '../../../tmdb/interfaces';
 import { SearchMoviesResponseDto } from '../dto/search-movies-response.dto';
 import { MovieSummaryResponseDto } from '../dto/movie-summary-response.dto';
-
-const extractReleaseYear = (releaseDate: string): number => {
-  if (!releaseDate) {
-    return 0;
-  }
-
-  const year = Number.parseInt(releaseDate.split('-')[0] ?? '', 10);
-
-  return Number.isNaN(year) ? 0 : year;
-};
 
 export const mapTmdbMovieToSummary = (
   movie: TmdbMovieSummary,

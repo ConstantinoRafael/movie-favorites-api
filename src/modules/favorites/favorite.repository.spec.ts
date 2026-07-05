@@ -11,7 +11,6 @@ describe('FavoriteRepository', () => {
       findUnique: jest.Mock;
       create: jest.Mock;
       update: jest.Mock;
-      delete: jest.Mock;
     };
   };
 
@@ -37,7 +36,6 @@ describe('FavoriteRepository', () => {
         findUnique: jest.fn(),
         create: jest.fn(),
         update: jest.fn(),
-        delete: jest.fn(),
       },
     };
 
@@ -103,17 +101,6 @@ describe('FavoriteRepository', () => {
     expect(prisma.favoriteMovie.update).toHaveBeenCalledWith({
       where: { tmdbId: 550 },
       data: updateData,
-    });
-  });
-
-  it('should delete a favorite', async () => {
-    prisma.favoriteMovie.delete.mockResolvedValue(mockFavorite);
-
-    const result = await repository.delete(550);
-
-    expect(result).toEqual(mockFavorite);
-    expect(prisma.favoriteMovie.delete).toHaveBeenCalledWith({
-      where: { tmdbId: 550 },
     });
   });
 });

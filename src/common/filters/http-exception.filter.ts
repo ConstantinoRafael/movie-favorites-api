@@ -9,8 +9,8 @@ import { InjectPinoLogger, PinoLogger } from 'nestjs-pino';
 import { Request, Response } from 'express';
 import { ErrorResponseDto } from '../dto/error-response.dto';
 import { LogEvent } from '../logging/log-events';
-
-type RequestWithId = Request & { id?: string };
+import { RequestWithId } from '../types';
+import { getErrorMessage } from '../utils';
 
 @Catch()
 export class HttpExceptionFilter implements ExceptionFilter {
@@ -90,7 +90,7 @@ export class HttpExceptionFilter implements ExceptionFilter {
       err:
         exception instanceof Error
           ? exception.stack ?? exception.message
-          : String(exception),
+          : getErrorMessage(exception),
     };
 
     if (status >= 500) {

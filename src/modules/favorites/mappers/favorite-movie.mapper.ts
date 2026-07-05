@@ -1,4 +1,5 @@
 import { FavoriteMovie } from '@prisma/client';
+import { extractReleaseYear } from '@common/utils';
 import { TmdbMovieDetails } from '../../../tmdb/interfaces';
 import { FavoriteMovieResponseDto } from '../dto/favorite-movie-response.dto';
 
@@ -8,16 +9,6 @@ export type TmdbMovieSnapshot = {
   releaseYear: number;
   posterPath: string | null;
   voteAverage: number;
-};
-
-const extractReleaseYear = (releaseDate: string): number => {
-  if (!releaseDate) {
-    return 0;
-  }
-
-  const year = Number.parseInt(releaseDate.split('-')[0] ?? '', 10);
-
-  return Number.isNaN(year) ? 0 : year;
 };
 
 export const mapTmdbMovieToSnapshot = (

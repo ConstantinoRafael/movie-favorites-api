@@ -13,7 +13,6 @@ export type FavoriteRepositoryMock = {
   findByTmdbId: jest.Mock;
   create: jest.Mock;
   update: jest.Mock;
-  delete: jest.Mock;
 };
 
 export type RedisMock = {
@@ -41,7 +40,6 @@ export async function createIntegrationApp(): Promise<{
     findByTmdbId: jest.fn().mockResolvedValue(null),
     create: jest.fn(),
     update: jest.fn(),
-    delete: jest.fn(),
   };
 
   const redis: RedisMock = {

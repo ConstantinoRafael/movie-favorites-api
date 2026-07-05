@@ -8,8 +8,8 @@ import { Request, Response } from 'express';
 import { InjectPinoLogger, PinoLogger } from 'nestjs-pino';
 import { Observable, tap } from 'rxjs';
 import { LogEvent } from '../logging/log-events';
-
-type RequestWithId = Request & { id?: string };
+import { RequestWithId } from '../types';
+import { getErrorMessage } from '../utils';
 
 @Injectable()
 export class HttpLoggingInterceptor implements NestInterceptor {
@@ -62,7 +62,7 @@ export class HttpLoggingInterceptor implements NestInterceptor {
               method: request.method,
               path: request.url,
               responseTimeMs: Date.now() - startTime,
-              err: error instanceof Error ? error.message : String(error),
+              err: getErrorMessage(error),
             },
             'error',
           );

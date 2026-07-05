@@ -29,10 +29,4 @@ export class FavoriteRepository {
       data,
     });
   }
-
-  delete(tmdbId: number): Promise<FavoriteMovie> {
-    return this.prisma.favoriteMovie.delete({
-      where: { tmdbId },
-    });
-  }
 }

@@ -5,6 +5,7 @@ import { AppConfigModule } from '../config';
 import { AppConfigService } from '../config/app-config.service';
 import { TmdbHttpRetrySetup } from './tmdb-http-retry.setup';
 import { TmdbCircuitBreaker } from './tmdb-circuit-breaker';
+import { TmdbErrorHandler } from './tmdb-error.handler';
 import { TmdbService } from './tmdb.service';
 
 @Module({
@@ -19,7 +20,12 @@ import { TmdbService } from './tmdb.service';
       }),
     }),
   ],
-  providers: [TmdbCircuitBreaker, TmdbService, TmdbHttpRetrySetup],
-  exports: [TmdbService],
+  providers: [
+    TmdbCircuitBreaker,
+    TmdbErrorHandler,
+    TmdbService,
+    TmdbHttpRetrySetup,
+  ],
+  exports: [TmdbService, TmdbErrorHandler],
 })
 export class TmdbModule {}

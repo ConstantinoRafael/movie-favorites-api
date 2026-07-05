@@ -1,11 +1,11 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { FavoriteController } from './favorite.controller';
-import { MovieService } from '../movies/movie.service';
+import { FavoriteService } from './favorite.service';
 import { FavoriteMovieResponseDto } from './dto/favorite-movie-response.dto';
 
 describe('FavoriteController', () => {
   let controller: FavoriteController;
-  let movieService: {
+  let favoriteService: {
     addFavorite: jest.Mock;
     listFavorites: jest.Mock;
     markAsWatched: jest.Mock;
@@ -28,7 +28,7 @@ describe('FavoriteController', () => {
   };
 
   beforeEach(async () => {
-    movieService = {
+    favoriteService = {
       addFavorite: jest.fn().mockResolvedValue(mockFavoriteResponse),
       listFavorites: jest.fn().mockResolvedValue([mockFavoriteResponse]),
       markAsWatched: jest.fn().mockResolvedValue({
@@ -45,48 +45,48 @@ describe('FavoriteController', () => {
 
     const module: TestingModule = await Test.createTestingModule({
       controllers: [FavoriteController],
-      providers: [{ provide: MovieService, useValue: movieService }],
+      providers: [{ provide: FavoriteService, useValue: favoriteService }],
     }).compile();
 
-    controller = module.get<FavoriteController>(FavoriteController);
+    controller = module.get(FavoriteController);
   });
 
   it('should be defined', () => {
     expect(controller).toBeDefined();
   });
 
-  it('should delegate create to MovieService', async () => {
+  it('should delegate create to FavoriteService', async () => {
     const dto = { tmdbId: 550 };
 
     const result = await controller.create(dto);
 
     expect(result).toEqual(mockFavoriteResponse);
-    expect(movieService.addFavorite).toHaveBeenCalledWith(dto);
+    expect(favoriteService.addFavorite).toHaveBeenCalledWith(dto);
   });
 
-  it('should delegate findAll to MovieService', async () => {
+  it('should delegate findAll to FavoriteService', async () => {
     const result = await controller.findAll();
 
     expect(result).toEqual([mockFavoriteResponse]);
-    expect(movieService.listFavorites).toHaveBeenCalled();
+    expect(favoriteService.listFavorites).toHaveBeenCalled();
   });
 
-  it('should delegate markAsWatched to MovieService', async () => {
+  it('should delegate markAsWatched to FavoriteService', async () => {
     const params = { tmdbId: 550 };
 
     const result = await controller.markAsWatched(params);
 
     expect(result.watched).toBe(true);
-    expect(movieService.markAsWatched).toHaveBeenCalledWith(550);
+    expect(favoriteService.markAsWatched).toHaveBeenCalledWith(550);
   });
 
-  it('should delegate updateRating to MovieService', async () => {
+  it('should delegate updateRating to FavoriteService', async () => {
     const params = { tmdbId: 550 };
     const dto = { rating: 8.5 };
 
     const result = await controller.updateRating(params, dto);
 
     expect(result.rating).toBe(8.5);
-    expect(movieService.updateRating).toHaveBeenCalledWith(550, dto);
+    expect(favoriteService.updateRating).toHaveBeenCalledWith(550, dto);
   });
 });

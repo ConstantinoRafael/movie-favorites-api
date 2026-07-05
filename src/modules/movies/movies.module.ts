@@ -1,4 +1,4 @@
-import { forwardRef, Module } from '@nestjs/common';
+import { Module } from '@nestjs/common';
 import { LoggerModule } from 'nestjs-pino';
 import { RedisModule } from '../../redis';
 import { TmdbModule } from '../../tmdb';
@@ -7,14 +7,8 @@ import { MovieController } from './movie.controller';
 import { MovieService } from './movie.service';
 
 @Module({
-  imports: [
-    forwardRef(() => FavoritesModule),
-    RedisModule,
-    TmdbModule,
-    LoggerModule,
-  ],
+  imports: [FavoritesModule, RedisModule, TmdbModule, LoggerModule],
   controllers: [MovieController],
   providers: [MovieService],
-  exports: [MovieService],
 })
 export class MoviesModule {}

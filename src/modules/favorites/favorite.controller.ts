@@ -22,7 +22,7 @@ import {
 } from '@nestjs/swagger';
 import { ErrorResponseDto, TmdbIdParamDto } from '@common/dto';
 import { API_TAGS } from '@common/swagger';
-import { MovieService } from '../movies/movie.service';
+import { FavoriteService } from './favorite.service';
 import { CreateFavoriteDto } from './dto/create-favorite.dto';
 import { FavoriteMovieResponseDto } from './dto/favorite-movie-response.dto';
 import { UpdateFavoriteRatingDto } from './dto/update-favorite-rating.dto';
@@ -30,7 +30,7 @@ import { UpdateFavoriteRatingDto } from './dto/update-favorite-rating.dto';
 @ApiTags(API_TAGS.FAVORITES)
 @Controller('favorites')
 export class FavoriteController {
-  constructor(private readonly movieService: MovieService) {}
+  constructor(private readonly favoriteService: FavoriteService) {}
 
   @Get()
   @ApiOperation({
@@ -48,7 +48,7 @@ export class FavoriteController {
     type: ErrorResponseDto,
   })
   findAll(): Promise<FavoriteMovieResponseDto[]> {
-    return this.movieService.listFavorites();
+    return this.favoriteService.listFavorites();
   }
 
   @Post()
@@ -79,7 +79,7 @@ export class FavoriteController {
     type: ErrorResponseDto,
   })
   create(@Body() dto: CreateFavoriteDto): Promise<FavoriteMovieResponseDto> {
-    return this.movieService.addFavorite(dto);
+    return this.favoriteService.addFavorite(dto);
   }
 
   @Patch(':tmdbId/watch')
@@ -109,7 +109,7 @@ export class FavoriteController {
   markAsWatched(
     @Param() params: TmdbIdParamDto,
   ): Promise<FavoriteMovieResponseDto> {
-    return this.movieService.markAsWatched(params.tmdbId);
+    return this.favoriteService.markAsWatched(params.tmdbId);
   }
 
   @Patch(':tmdbId/rating')
@@ -141,6 +141,6 @@ export class FavoriteController {
     @Param() params: TmdbIdParamDto,
     @Body() dto: UpdateFavoriteRatingDto,
   ): Promise<FavoriteMovieResponseDto> {
-    return this.movieService.updateRating(params.tmdbId, dto);
+    return this.favoriteService.updateRating(params.tmdbId, dto);
   }
 }
