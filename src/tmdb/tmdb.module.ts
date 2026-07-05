@@ -1,11 +1,14 @@
 import { HttpModule } from '@nestjs/axios';
 import { Module } from '@nestjs/common';
+import { LoggerModule } from 'nestjs-pino';
 import { AppConfigModule } from '../config';
 import { AppConfigService } from '../config/app-config.service';
+import { TmdbHttpRetrySetup } from './tmdb-http-retry.setup';
 import { TmdbService } from './tmdb.service';
 
 @Module({
   imports: [
+    LoggerModule,
     HttpModule.registerAsync({
       imports: [AppConfigModule],
       inject: [AppConfigService],
@@ -15,7 +18,7 @@ import { TmdbService } from './tmdb.service';
       }),
     }),
   ],
-  providers: [TmdbService],
+  providers: [TmdbService, TmdbHttpRetrySetup],
   exports: [TmdbService],
 })
 export class TmdbModule {}
