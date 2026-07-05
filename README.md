@@ -5,7 +5,7 @@ API REST para gerenciar filmes favoritos. Busca no [TMDB](https://www.themoviedb
 ## 🚀 Início Rápido
 
 ```bash
-git clone <repository-url>
+git clone https://github.com/ConstantinoRafael/movie-favorites-api.git
 cd movie-favorites-api
 cp .env.example .env
 ```
@@ -67,7 +67,7 @@ npm install && npx prisma migrate deploy
 - [Estrutura do Projeto](#estrutura-do-projeto)
 - [Modelo de Dados](#modelo-de-dados)
 - [Regras de Negócio Implementadas](#regras-de-negócio-implementadas)
-- [Fluxo da Aplicação](#fluxo-da-aplicação)
+- [Cache e Resiliência](#cache-e-resiliência)
 - [Primeiros Passos com Docker Compose](#primeiros-passos-com-docker-compose)
 - [Desenvolvimento Local](#desenvolvimento-local)
 - [Migrations do Banco de Dados](#migrations-do-banco-de-dados)
@@ -232,92 +232,30 @@ movie-favorites-api/
 
 ---
 
-## Fluxo da Aplicação
+## Cache e Resiliência
 
-### Fluxo de Requisição
+### Cache
 
-Pipeline global antes do controller:
+Respostas do TMDB passam por cache **read-through** no Redis (TTL **1 hora**):
 
-```mermaid
-sequenceDiagram
-    participant C as Client
-    participant P as Pino Middleware
-    participant I as HttpLoggingInterceptor
-    participant V as ValidationPipe
-    participant Ctrl as Controller
-    participant S as MovieService
-    participant F as HttpExceptionFilter
+- **Cache hit** — a chave existe no Redis; a API devolve o JSON cacheado sem chamar o TMDB.
+- **Cache miss** — a API consulta o TMDB, grava o resultado no Redis e responde ao cliente.
 
-    C->>P: HTTP Request
-    P->>P: Assign requestId
-    P->>I: request.started
-    I->>V: Validate DTO / params
-    V->>Ctrl: Validated input
-    Ctrl->>S: Business operation
-    S-->>Ctrl: Result / Exception
-    Ctrl-->>I: Response
-    I->>I: request.finished + responseTimeMs
-    I-->>C: HTTP Response
-
-    Note over S,F: On exception
-    S-->>F: Domain / HTTP exception
-    F->>F: Log error + requestId
-    F-->>C: { statusCode, message, timestamp, path }
-```
-
-### Fluxo de Cache
-
-Redis em read-through para respostas do TMDB. TTL **1 hora** na busca e no enriquecimento de favoritos.
-
-```mermaid
-flowchart TD
-    A[Incoming Request] --> B{Cache key exists<br/>in Redis?}
-
-    B -->|Yes| C[Parse cached JSON]
-    C --> D[cache.hit log]
-    D --> E[Return cached data]
-
-    B -->|No| F[cache.miss log]
-    F --> G[Call TMDB API]
-    G --> H{TMDB success?}
-    H -->|Yes| I[Store in Redis<br/>TTL 3600s]
-    I --> J[Return fresh data]
-    H -->|No| K[See Fallback Flow]
-```
-
-**Chaves de cache:**
-
-| Propósito | Padrão da chave | TTL |
-|---------|-------------|-----|
+| Propósito | Chave | TTL |
+|-----------|-------|-----|
 | Busca de filmes | `movies:search:{query}:{page}` | 3600s |
 | Enriquecimento de favoritos | `favorites:tmdb:{tmdbId}` | 3600s |
 
-### Fluxo de Fallback
+### Resiliência e Fallback
 
-Comportamento quando o TMDB falha:
+Chamadas ao TMDB usam **retry** (`axios-retry`, até 3 tentativas em 5xx/timeout) e **circuit breaker** (Opossum) para não insistir em serviço degradado.
 
-```mermaid
-flowchart TD
-    A[TMDB Call Fails] --> B{Failure type?}
+Quando o TMDB falha, o comportamento depende da operação (**graceful degradation**):
 
-    B -->|Retryable 5xx / timeout| C[axios-retry<br/>up to 3 attempts]
-    C --> D{Still failing?}
-    D -->|Yes| E[Circuit breaker<br/>tracks failures]
-    E --> F{Circuit open?}
+- **`GET /favorites`** — retorna `200 OK` com snapshot local do PostgreSQL; log `fallback` (`tmdb_unavailable` ou `circuit_open`).
+- **`POST /favorites`** e **`GET /movies/search`** — retornam `502 Bad Gateway`, pois dependem de dado fresco do TMDB.
 
-    B -->|404| G[MovieNotFoundException]
-    B -->|401| H[InternalServerErrorException]
-    B -->|Circuit open| F
-
-    F -->|Yes| I[fallback log<br/>reason: circuit_open]
-    F -->|No| J[fallback log<br/>reason: tmdb_error]
-
-    I --> K{Operation?}
-    J --> K
-
-    K -->|GET /favorites| L[Return local snapshot<br/>HTTP 200]
-    K -->|POST /favorites<br/>GET /movies/search| M[BadGatewayException<br/>HTTP 502]
-```
+Erros mapeados: `404` → filme não encontrado; `401` na API key → erro interno.
 
 ---
 
