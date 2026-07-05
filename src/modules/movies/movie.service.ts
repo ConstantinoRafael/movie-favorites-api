@@ -1,13 +1,25 @@
 import {
   BadGatewayException,
+  ConflictException,
   Injectable,
   InternalServerErrorException,
-  Logger,
+  NotFoundException,
 } from '@nestjs/common';
 import { AxiosError } from 'axios';
+import { InjectPinoLogger, PinoLogger } from 'nestjs-pino';
+import { CreateFavoriteDto } from '../favorites/dto/create-favorite.dto';
+import { FavoriteMovieResponseDto } from '../favorites/dto/favorite-movie-response.dto';
 import { FavoriteRepository } from '../favorites/favorite.repository';
+import {
+  mapFavoriteToResponse,
+  mapTmdbMovieToFavoriteSnapshot,
+} from '../favorites/mappers/favorite-movie.mapper';
 import { RedisService } from '../../redis';
-import { TmdbSearchMoviesResponse, TmdbService } from '../../tmdb';
+import {
+  TmdbMovieDetails,
+  TmdbSearchMoviesResponse,
+  TmdbService,
+} from '../../tmdb';
 import { SearchMoviesQueryDto } from './dto/search-movies-query.dto';
 import { SearchMoviesResponseDto } from './dto/search-movies-response.dto';
 import { mapTmdbSearchToResponse } from './mappers/search-movies.mapper';
@@ -18,30 +30,59 @@ import {
 
 @Injectable()
 export class MovieService {
-  private readonly logger = new Logger(MovieService.name);
-
   constructor(
+    @InjectPinoLogger(MovieService.name)
+    private readonly logger: PinoLogger,
     private readonly favoriteRepository: FavoriteRepository,
     private readonly redis: RedisService,
     private readonly tmdb: TmdbService,
   ) {}
 
+  async addFavorite(
+    dto: CreateFavoriteDto,
+  ): Promise<FavoriteMovieResponseDto> {
+    const { tmdbId } = dto;
+
+    this.logger.info({ tmdbId }, 'Adding movie to favorites');
+
+    const existingFavorite =
+      await this.favoriteRepository.findByTmdbId(tmdbId);
+
+    if (existingFavorite) {
+      this.logger.warn({ tmdbId }, 'Movie is already in favorites');
+
+      throw new ConflictException('Movie is already in favorites');
+    }
+
+    const tmdbMovie = await this.fetchMovieFromTmdb(tmdbId);
+    const snapshot = mapTmdbMovieToFavoriteSnapshot(tmdbMovie);
+    const favorite = await this.favoriteRepository.create(snapshot);
+
+    this.logger.info(
+      { tmdbId, favoriteId: favorite.id },
+      'Movie added to favorites',
+    );
+
+    return mapFavoriteToResponse(favorite);
+  }
+
   async search(query: SearchMoviesQueryDto): Promise<SearchMoviesResponseDto> {
     const page = query.page ?? 1;
     const cacheKey = buildMoviesSearchCacheKey(query.query, page);
 
-    this.logger.log(
-      `Searching movies: query="${query.query}", page=${page}, cacheKey="${cacheKey}"`,
+    this.logger.info(
+      { query: query.query, page, cacheKey },
+      'Searching movies',
     );
 
     const cachedResponse = await this.getCachedSearch(cacheKey);
 
     if (cachedResponse) {
-      this.logger.log(`Cache hit for key="${cacheKey}"`);
+      this.logger.info({ cacheKey }, 'Cache hit for search');
       return this.enrichWithFavorites(cachedResponse);
     }
 
-    this.logger.log(`Cache miss for key="${cacheKey}"`);
+    this.logger.info({ cacheKey }, 'Cache miss for search');
 
     const tmdbResponse = await this.fetchSearchFromTmdb(query.query, page);
     const simplifiedResponse = mapTmdbSearchToResponse(tmdbResponse);
@@ -64,8 +105,8 @@ export class MovieService {
       return JSON.parse(cached) as SearchMoviesResponseDto;
     } catch (error) {
       this.logger.warn(
-        `Failed to read cache for key="${cacheKey}". Falling back to TMDB.`,
-        error instanceof Error ? error.stack : String(error),
+        { cacheKey, err: error instanceof Error ? error.message : String(error) },
+        'Failed to read cache. Falling back to TMDB',
       );
 
       return null;
@@ -83,13 +124,14 @@ export class MovieService {
         MOVIES_SEARCH_CACHE_TTL_SECONDS,
       );
 
-      this.logger.log(
-        `Cached search result for key="${cacheKey}" with TTL=${MOVIES_SEARCH_CACHE_TTL_SECONDS}s`,
+      this.logger.info(
+        { cacheKey, ttlSeconds: MOVIES_SEARCH_CACHE_TTL_SECONDS },
+        'Cached search result',
       );
     } catch (error) {
       this.logger.warn(
-        `Failed to write cache for key="${cacheKey}". Returning response without caching.`,
-        error instanceof Error ? error.stack : String(error),
+        { cacheKey, err: error instanceof Error ? error.message : String(error) },
+        'Failed to write cache. Returning response without caching',
       );
     }
   }
@@ -105,13 +147,49 @@ export class MovieService {
     }
   }
 
+  private async fetchMovieFromTmdb(tmdbId: number): Promise<TmdbMovieDetails> {
+    try {
+      return await this.tmdb.getMovie(tmdbId);
+    } catch (error) {
+      this.handleTmdbGetMovieError(error, tmdbId);
+    }
+  }
+
+  private handleTmdbGetMovieError(error: unknown, tmdbId: number): never {
+    if (error instanceof AxiosError) {
+      const status = error.response?.status;
+
+      this.logger.error(
+        { tmdbId, status: status ?? 'unknown', err: error.message },
+        'TMDB API error while fetching movie details',
+      );
+
+      if (status === 404) {
+        throw new NotFoundException(`Movie with TMDB id ${tmdbId} not found`);
+      }
+
+      if (status === 401) {
+        throw new InternalServerErrorException('TMDB API key is invalid');
+      }
+
+      throw new BadGatewayException('Failed to fetch movie from TMDB');
+    }
+
+    this.logger.error(
+      { tmdbId, err: error instanceof Error ? error.message : String(error) },
+      'Unexpected error while fetching movie from TMDB',
+    );
+
+    throw new InternalServerErrorException('Failed to fetch movie');
+  }
+
   private handleTmdbError(error: unknown): never {
     if (error instanceof AxiosError) {
       const status = error.response?.status;
 
       this.logger.error(
-        `TMDB API error: status=${status ?? 'unknown'} message=${error.message}`,
-        error.stack,
+        { status: status ?? 'unknown', err: error.message },
+        'TMDB API error while searching movies',
       );
 
       if (status === 401) {
@@ -122,8 +200,8 @@ export class MovieService {
     }
 
     this.logger.error(
+      { err: error instanceof Error ? error.message : String(error) },
       'Unexpected error while fetching movies from TMDB',
-      error instanceof Error ? error.stack : String(error),
     );
 
     throw new InternalServerErrorException('Failed to fetch movies');
@@ -150,8 +228,8 @@ export class MovieService {
       return new Set(favorites.map((favorite) => favorite.tmdbId));
     } catch (error) {
       this.logger.warn(
-        'Failed to load favorites for search enrichment. Returning without isFavorite.',
-        error instanceof Error ? error.stack : String(error),
+        { err: error instanceof Error ? error.message : String(error) },
+        'Failed to load favorites for search enrichment. Returning without isFavorite',
       );
 
       return new Set();

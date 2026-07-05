@@ -1,6 +1,11 @@
-import { BadGatewayException } from '@nestjs/common';
+import {
+  BadGatewayException,
+  ConflictException,
+  NotFoundException,
+} from '@nestjs/common';
 import { Test, TestingModule } from '@nestjs/testing';
 import { AxiosError, AxiosHeaders } from 'axios';
+import { getLoggerToken } from 'nestjs-pino';
 import { FavoriteRepository } from '../favorites/favorite.repository';
 import { RedisService } from '../../redis';
 import { TmdbService } from '../../tmdb';
@@ -13,9 +18,18 @@ import { MovieService } from './movie.service';
 
 describe('MovieService', () => {
   let service: MovieService;
-  let favoriteRepository: { findAll: jest.Mock };
+  let favoriteRepository: {
+    findAll: jest.Mock;
+    findByTmdbId: jest.Mock;
+    create: jest.Mock;
+  };
   let redis: { get: jest.Mock; set: jest.Mock };
-  let tmdb: { searchMovies: jest.Mock };
+  let tmdb: { searchMovies: jest.Mock; getMovie: jest.Mock };
+  let logger: {
+    info: jest.Mock;
+    warn: jest.Mock;
+    error: jest.Mock;
+  };
 
   const tmdbResponse = {
     page: 1,
@@ -52,6 +66,8 @@ describe('MovieService', () => {
   beforeEach(async () => {
     favoriteRepository = {
       findAll: jest.fn().mockResolvedValue([{ tmdbId: 550 }]),
+      findByTmdbId: jest.fn().mockResolvedValue(null),
+      create: jest.fn(),
     };
 
     redis = {
@@ -61,6 +77,13 @@ describe('MovieService', () => {
 
     tmdb = {
       searchMovies: jest.fn().mockResolvedValue(tmdbResponse),
+      getMovie: jest.fn(),
+    };
+
+    logger = {
+      info: jest.fn(),
+      warn: jest.fn(),
+      error: jest.fn(),
     };
 
     const module: TestingModule = await Test.createTestingModule({
@@ -69,6 +92,7 @@ describe('MovieService', () => {
         { provide: FavoriteRepository, useValue: favoriteRepository },
         { provide: RedisService, useValue: redis },
         { provide: TmdbService, useValue: tmdb },
+        { provide: getLoggerToken(MovieService.name), useValue: logger },
       ],
     }).compile();
 
@@ -130,5 +154,100 @@ describe('MovieService', () => {
 
     expect(tmdb.searchMovies).toHaveBeenCalledWith('fight club', 1);
     expect(result.results[0]?.tmdbId).toBe(550);
+  });
+
+  describe('addFavorite', () => {
+    const tmdbMovieDetails = {
+      id: 550,
+      title: 'Fight Club',
+      overview: 'A ticking-time-bomb insomniac...',
+      poster_path: '/poster.jpg',
+      release_date: '1999-10-15',
+      vote_average: 8.4,
+      runtime: 139,
+      genres: [{ id: 18, name: 'Drama' }],
+      status: 'Released',
+    };
+
+    const createdFavorite = {
+      id: 1,
+      tmdbId: 550,
+      title: 'Fight Club',
+      overview: 'A ticking-time-bomb insomniac...',
+      releaseYear: 1999,
+      posterPath: '/poster.jpg',
+      voteAverage: 8.4,
+      watched: false,
+      watchedAt: null,
+      rating: null,
+      createdAt: new Date('2026-01-01T12:00:00.000Z'),
+      updatedAt: new Date('2026-01-01T12:00:00.000Z'),
+    };
+
+    it('should create a favorite when movie exists in TMDB', async () => {
+      tmdb.getMovie.mockResolvedValue(tmdbMovieDetails);
+      favoriteRepository.create.mockResolvedValue(createdFavorite);
+
+      const result = await service.addFavorite({ tmdbId: 550 });
+
+      expect(favoriteRepository.findByTmdbId).toHaveBeenCalledWith(550);
+      expect(tmdb.getMovie).toHaveBeenCalledWith(550);
+      expect(favoriteRepository.create).toHaveBeenCalledWith({
+        tmdbId: 550,
+        title: 'Fight Club',
+        overview: 'A ticking-time-bomb insomniac...',
+        releaseYear: 1999,
+        posterPath: '/poster.jpg',
+        voteAverage: 8.4,
+      });
+      expect(result.tmdbId).toBe(550);
+    });
+
+    it('should throw ConflictException when movie is already favorited', async () => {
+      favoriteRepository.findByTmdbId.mockResolvedValue(createdFavorite);
+
+      await expect(service.addFavorite({ tmdbId: 550 })).rejects.toBeInstanceOf(
+        ConflictException,
+      );
+
+      expect(tmdb.getMovie).not.toHaveBeenCalled();
+      expect(favoriteRepository.create).not.toHaveBeenCalled();
+    });
+
+    it('should throw NotFoundException when TMDB returns 404', async () => {
+      const axiosError = new AxiosError('Not Found');
+      axiosError.response = {
+        status: 404,
+        statusText: 'Not Found',
+        headers: {},
+        config: { headers: new AxiosHeaders() },
+        data: {},
+      };
+
+      tmdb.getMovie.mockRejectedValue(axiosError);
+
+      await expect(service.addFavorite({ tmdbId: 999 })).rejects.toBeInstanceOf(
+        NotFoundException,
+      );
+
+      expect(favoriteRepository.create).not.toHaveBeenCalled();
+    });
+
+    it('should throw BadGatewayException when TMDB fails with other errors', async () => {
+      const axiosError = new AxiosError('Bad Gateway');
+      axiosError.response = {
+        status: 502,
+        statusText: 'Bad Gateway',
+        headers: {},
+        config: { headers: new AxiosHeaders() },
+        data: {},
+      };
+
+      tmdb.getMovie.mockRejectedValue(axiosError);
+
+      await expect(service.addFavorite({ tmdbId: 550 })).rejects.toBeInstanceOf(
+        BadGatewayException,
+      );
+    });
   });
 });
