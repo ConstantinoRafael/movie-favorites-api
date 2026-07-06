@@ -396,15 +396,15 @@ Documentação interativa e contrato OpenAPI (links também no [Início Rápido]
 
 ## Exemplos de Utilização da API
 
-Espaço reservado para prints do Postman nas operações principais.
+Capturas do Postman demonstrando as operações principais.
 
 ### Buscar filmes
 
 `GET /movies/search?query=fight+club&page=1`
 
-<!-- Inserir print do Postman aqui -->
+![Busca paginada de filmes no TMDB](docs/screenshots/buscar-filmes.png)
 
-Busca paginada no TMDB: parâmetros `query`/`page`, `200 OK`, lista com flag de favorito por filme.
+Parâmetros `query` e `page`, resposta `200 OK` com lista paginada e flag `isFavorite` por filme.
 
 ### Favoritar filme
 
@@ -414,25 +414,25 @@ Busca paginada no TMDB: parâmetros `query`/`page`, `200 OK`, lista com flag de 
 { "tmdbId": 550 }
 ```
 
-<!-- Inserir print do Postman aqui -->
+![Cadastro de filme nos favoritos](docs/screenshots/favoritar-filme.png)
 
-Cadastro via `tmdbId`: corpo da requisição, `201 Created`, resposta com snapshot (título, sinopse, poster…).
+Corpo com `tmdbId`, resposta `201 Created` e snapshot persistido (título, sinopse, poster…).
 
 ### Listar favoritos
 
 `GET /favorites`
 
-<!-- Inserir print do Postman aqui -->
+![Listagem de favoritos enriquecidos](docs/screenshots/listar-favoritos.png)
 
-Lista enriquecida pelo TMDB: `200 OK`, array com campos locais (`watched`, `rating`) e metadados.
+Resposta `200 OK` com campos locais (`watched`, `rating`) e metadados do TMDB.
 
 ### Marcar como assistido
 
 `PATCH /favorites/550/watch`
 
-<!-- Inserir print do Postman aqui -->
+![Marcar favorito como assistido](docs/screenshots/marcar-assistido.png)
 
-Operação idempotente: `tmdbId` na URL, `200 OK`, `watched: true` e `watchedAt` preenchido.
+Operação idempotente: `200 OK`, `watched: true` e `watchedAt` preenchido.
 
 ### Avaliar filme
 
@@ -442,7 +442,7 @@ Operação idempotente: `tmdbId` na URL, `200 OK`, `watched: true` e `watchedAt`
 { "rating": 8.5 }
 ```
 
-<!-- Inserir print do Postman aqui -->
+![Avaliação de filme assistido](docs/screenshots/avaliar-filme.png)
 
 Nota entre 0–10 no corpo, `200 OK`, favorito atualizado com `rating`.
 
@@ -450,31 +450,31 @@ Nota entre 0–10 no corpo, `200 OK`, favorito atualizado com `rating`.
 
 `GET /movies/search?query=fight+club&page=1` *(mesma requisição repetida)*
 
-**Primeira requisição**
+**Primeira requisição (cache miss)**
 
-<!-- Inserir print do Postman aqui — primeira requisição -->
+![Cache miss — consulta ao TMDB (~872 ms)](docs/screenshots/buscar-filmes.png)
 
-Cache miss — tempo de resposta maior (consulta ao TMDB).
+**Segunda requisição (cache hit)**
 
-**Segunda requisição**
-
-<!-- Inserir print do Postman aqui — segunda requisição -->
-
-Cache hit — tempo significativamente menor (dados servidos do Redis).
+![Cache hit — dados servidos do Redis (~6 ms)](docs/screenshots/cache-hit.png)
 
 > Estratégia completa em [Cache e Resiliência](#cache-e-resiliência).
 
 ### Fallback quando o TMDB está indisponível
 
-`GET /favorites` *(TMDB indisponível)*
+`GET /favorites` *(TMDB indisponível / circuit breaker aberto)*
 
-<!-- Inserir print da resposta -->
+![Listagem com fallback — resposta 200 OK com dados locais](docs/screenshots/fallback-listagem.png)
 
-Listagem respondendo `200 OK` com metadados locais — TMDB fora do ar.
+A API responde com sucesso usando snapshots do PostgreSQL, sem depender do TMDB.
 
-<!-- Inserir print dos logs -->
+**Logs estruturados**
 
-Evento `fallback` nos logs (`reason: tmdb_unavailable` ou `reason: circuit_open`).
+![Logs com evento fallback — reason: tmdb_unavailable](docs/screenshots/fallback-logs-tmdb-unavailable.png)
+
+![Logs com circuit breaker aberto — reason: circuit_open](docs/screenshots/fallback-logs-circuit-open.png)
+
+Eventos `fallback` registrados pelo Pino quando o enriquecimento via TMDB falha.
 
 > Comportamento detalhado em [Cache e Resiliência](#resiliência-e-fallback) e [Regras de Negócio](#regras-de-negócio-implementadas).
 
